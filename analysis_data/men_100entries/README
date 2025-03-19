@@ -1,0 +1,30 @@
+# Analysis Data Directory
+
+This directory contains pre-generated analysis data files that power the bracket assessment functionality. These files are produced by running the bracket_analysis.py script from the bigdance package.
+
+## Required Files
+
+For the full bracket assessment experience, the following files should be placed in this directory:
+
+1. `optimal_upset_strategy.csv` - Contains the optimal number of upsets for each round based on simulation data
+2. `champion_pick_comparison.csv` - Compares the frequency of champion picks between winning and non-winning brackets
+3. `specific_upset_comparison.csv` - Details on individual upset picks that appear more often in winning brackets
+4. `comparative_analysis_summary.md` - A summary report of the analysis findings
+5. `upset_comparison_statistics.csv` - Statistical comparisons of upset patterns between winning and non-winning brackets
+6. `log_probability_comparison_statistics.csv` - Statistical comparisons of log probabilities between winning and non-winning brackets
+
+## Generating Analysis Data
+
+To generate these files, you can run the bracket_analysis.py script from the bigdance package:
+
+```bash
+# First ensure you have bigdance installed
+pip install bigdance
+
+# Run the analysis (this may take some time)
+python -m bigdance.bracket_analysis --num_pools 100 --output_dir ./analysis_data
+```
+
+## Default Values
+
+If any files are missing, the application will use reasonable default values based on historical tournament data, but the recommendations will be less accurate than with the full analysis data.
