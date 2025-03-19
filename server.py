@@ -91,7 +91,7 @@ try:
             "Total": {"optimal": 18, "range": (18, 25)}
         }
     else:
-        optimal_upset_dict = {round_name: {"optimal": int(row['max_advantage_upsets']), 
+        optimal_upset_dict = {row['round']: {"optimal": int(row['max_advantage_upsets']), 
                                           "range": (max(0, int(row['max_advantage_upsets'] - 2)), 
                                                    int(row['max_advantage_upsets'] + 2))}
                              for _, row in optimal_upset_df.iterrows() if row['round'] != 'Total Upsets'}

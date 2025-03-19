@@ -13,6 +13,8 @@ import logging
 # from bigdance.wn_cbb_scraper import Standings
 # from bigdance.bigdance_integration import create_teams_from_standings
 from bigdance.espn_tc_scraper import extract_json_data, extract_first_round_from_json, convert_espn_to_bigdance, get_espn_bracket
+import os
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +23,13 @@ logger = logging.getLogger(__name__)
 # actual_bracket = create_teams_from_standings(standings)
 
 # Pulling tournament team data from ESPN
-html_content = get_espn_bracket()
-bracket_json = extract_json_data(html_content)
-first_round = extract_first_round_from_json(bracket_json)
+if os.path.exists("first_round_matchups_men.json"):
+    with open("first_round_matchups_men.json","r") as espn_data:
+        first_round = json.loads(espn_data.read())
+else:
+    html_content = get_espn_bracket()
+    bracket_json = extract_json_data(html_content)
+    first_round = extract_first_round_from_json(bracket_json)
 actual_bracket = convert_espn_to_bigdance(first_round)
 
 teams = {}
