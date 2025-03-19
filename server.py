@@ -13,12 +13,110 @@ from shiny import render, ui
 from shiny.types import SilentException
 import logging
 from typing import Dict, List, Optional, Tuple
-from bigdance.bigdance_integration import create_bracket_with_picks
-from bigdance.cbb_brackets import Bracket, Pool
+import pandas as pd
+from pathlib import Path
+from markdown import markdown
 
-from data import teams, actual_bracket
+from data import teams
 
 logger = logging.getLogger(__name__)
+
+# Load comparative analysis data
+try:
+    analysis_dir = Path('analysis_data/men_100entries')
+    
+    # Check if analysis data directory exists
+    if not analysis_dir.exists():
+        analysis_dir.mkdir(parents=True, exist_ok=True)
+        logger.warning("Analysis data directory created. Please add analysis files.")
+    
+    # Load optimal upset strategy
+    optimal_upset_path = analysis_dir / 'optimal_upset_strategy.csv'
+    if optimal_upset_path.exists():
+        optimal_upset_df = pd.read_csv(optimal_upset_path)
+    else:
+        logger.warning("Optimal upset strategy file not found")
+        optimal_upset_df = None
+    
+    # Load champion pick comparison data
+    champion_path = analysis_dir / 'champion_pick_comparison.csv'
+    if champion_path.exists():
+        champion_df = pd.read_csv(champion_path)
+    else:
+        logger.warning("Champion pick comparison file not found")
+        champion_df = None
+    
+    # Load specific upsets data
+    specific_upsets_path = analysis_dir / 'specific_upset_comparison.csv'
+    if specific_upsets_path.exists():
+        specific_upsets_df = pd.read_csv(specific_upsets_path)
+    else:
+        logger.warning("Specific upsets file not found")
+        specific_upsets_df = None
+    
+    # Load historical data summary
+    summary_path = analysis_dir / 'comparative_analysis_summary.md'
+    if summary_path.exists():
+        with open(summary_path, 'r') as f:
+            analysis_summary = f.read()
+    else:
+        logger.warning("Comparative analysis summary file not found")
+        analysis_summary = None
+        
+    # Load upset comparison statistics
+    upset_stats_path = analysis_dir / 'upset_comparison_statistics.csv'
+    if upset_stats_path.exists():
+        upset_stats_df = pd.read_csv(upset_stats_path)
+    else:
+        logger.warning("Upset comparison statistics file not found")
+        upset_stats_df = None
+    
+    # Load log probability comparison statistics
+    log_prob_path = analysis_dir / 'log_probability_comparison_statistics.csv'
+    if log_prob_path.exists():
+        log_prob_df = pd.read_csv(log_prob_path)
+    else:
+        logger.warning("Log probability comparison statistics file not found")
+        log_prob_df = None
+    
+    # Default optimal values if files not found
+    if optimal_upset_df is None:
+        optimal_upset_dict = {
+            "First Round": {"optimal": 10, "range": (8, 11)},
+            "Second Round": {"optimal": 7, "range": (6, 8)},
+            "Sweet 16": {"optimal": 2, "range": (2, 4)},
+            "Elite 8": {"optimal": 1, "range": (1, 3)},
+            "Final Four": {"optimal": 1, "range": (0, 1)},
+            "Championship": {"optimal": 0, "range": (0, 1)},
+            "Total": {"optimal": 18, "range": (18, 25)}
+        }
+    else:
+        optimal_upset_dict = {round_name: {"optimal": int(row['max_advantage_upsets']), 
+                                          "range": (max(0, int(row['max_advantage_upsets'] - 2)), 
+                                                   int(row['max_advantage_upsets'] + 2))}
+                             for _, row in optimal_upset_df.iterrows() if row['round'] != 'Total Upsets'}
+        # Add total upsets
+        total_row = optimal_upset_df[optimal_upset_df['round'] == 'Total Upsets']
+        if not total_row.empty:
+            optimal_upset_dict["Total"] = {"optimal": int(total_row['max_advantage_upsets'].iloc[0]),
+                                          "range": (int(total_row['max_advantage_upsets'].iloc[0] - 4),
+                                                    int(total_row['max_advantage_upsets'].iloc[0] + 4))}
+        else:
+            optimal_upset_dict["Total"] = {"optimal": 22, "range": (18, 26)}
+            
+    analysis_data_loaded = True
+except Exception as e:
+    logger.error(f"Error loading analysis data: {str(e)}")
+    analysis_data_loaded = False
+    optimal_upset_dict = {
+        "First Round": {"optimal": 10, "range": (8, 11)},
+        "Second Round": {"optimal": 7, "range": (6, 8)},
+        "Sweet 16": {"optimal": 3, "range": (2, 4)},
+        "Elite 8": {"optimal": 2, "range": (1, 3)},
+        "Final Four": {"optimal": 1, "range": (0, 1)},
+        "Championship": {"optimal": 0, "range": (0, 1)},
+        "Total": {"optimal": 22, "range": (18, 26)}
+    }
 
 def get_game_winner(input, game_id: str) -> Optional[str]:
     """Helper function to safely get game winner"""
@@ -193,20 +291,433 @@ def get_final_four_matchups(input):
                         winners[3] if len(winners) > 3 else None))
     return matchups
 
+def count_underdogs_by_round(input) -> Dict[str, int]:
+    """
+    Count the number of underdogs selected in the bracket by round
+    An underdog is defined as a team with a seed higher than the expected seed for that round
+    """
+    underdog_counts = {}
+    round_names = {
+        1: "First Round",
+        2: "Second Round",
+        3: "Sweet 16",
+        4: "Elite 8",
+        5: "Final Four",
+        6: "Championship"
+    }
+    
+    # Define thresholds for underdogs by round
+    # Teams with seeds higher than these thresholds are considered underdogs
+    seed_thresholds = {
+        "First Round": 8,  # Seeds 9-16 are underdogs
+        "Second Round": 4,  # Seeds 5-16 are underdogs
+        "Sweet 16": 2,  # Seeds 3-16 are underdogs
+        "Elite 8": 1,  # Seeds 2-16 are underdogs
+        "Final Four": 1,  # Seeds 2-16 are underdogs
+        "Championship": 1,  # Seeds 2-16 are underdogs
+    }
+    
+    # Check each region's games through Elite 8
+    for region in ["east", "west", "south", "midwest"]:
+        # First round (8 games)
+        underdogs = 0
+        for i in range(8):
+            game_id = f"{region}_round1_game_{i}"
+            winner = get_game_winner(input, game_id)
+            if winner:
+                # Find team details
+                winner_details = next((team for region_teams in teams.values() 
+                                     for team in region_teams if team["Team"] == winner), None)
+                if winner_details and winner_details["Seed"] > seed_thresholds["First Round"]:
+                    underdogs += 1
+        underdog_counts["First Round"] = underdog_counts.get("First Round", 0) + underdogs
+        
+        # Second round (4 games)
+        underdogs = 0
+        for i in range(4):
+            game_id = f"{region}_round2_game_{i}"
+            winner = get_game_winner(input, game_id)
+            if winner:
+                # Find team details
+                winner_details = next((team for region_teams in teams.values() 
+                                     for team in region_teams if team["Team"] == winner), None)
+                if winner_details and winner_details["Seed"] > seed_thresholds["Second Round"]:
+                    underdogs += 1
+        underdog_counts["Second Round"] = underdog_counts.get("Second Round", 0) + underdogs
+        
+        # Sweet 16 (2 games)
+        underdogs = 0
+        for i in range(2):
+            game_id = f"{region}_round3_game_{i}"
+            winner = get_game_winner(input, game_id)
+            if winner:
+                # Find team details
+                winner_details = next((team for region_teams in teams.values() 
+                                     for team in region_teams if team["Team"] == winner), None)
+                if winner_details and winner_details["Seed"] > seed_thresholds["Sweet 16"]:
+                    underdogs += 1
+        underdog_counts["Sweet 16"] = underdog_counts.get("Sweet 16", 0) + underdogs
+        
+        # Elite 8 (1 game)
+        underdogs = 0
+        game_id = f"{region}_round4_game_0"
+        winner = get_game_winner(input, game_id)
+        if winner:
+            # Find team details
+            winner_details = next((team for region_teams in teams.values() 
+                                 for team in region_teams if team["Team"] == winner), None)
+            if winner_details and winner_details["Seed"] > seed_thresholds["Elite 8"]:
+                underdogs += 1
+        underdog_counts["Elite 8"] = underdog_counts.get("Elite 8", 0) + underdogs
+    
+    # Final Four (2 games)
+    underdogs = 0
+    for i in range(2):
+        game_id = f"final_round5_game_{i}"
+        winner = get_game_winner(input, game_id)
+        if winner:
+            # Find team details
+            winner_details = next((team for region_teams in teams.values() 
+                                 for team in region_teams if team["Team"] == winner), None)
+            if winner_details and winner_details["Seed"] > seed_thresholds["Final Four"]:
+                underdogs += 1
+    underdog_counts["Final Four"] = underdogs
+    
+    # Championship (1 game)
+    underdogs = 0
+    game_id = "final_round6_game_0"
+    winner = get_game_winner(input, game_id)
+    if winner:
+        # Find team details
+        winner_details = next((team for region_teams in teams.values() 
+                             for team in region_teams if team["Team"] == winner), None)
+        if winner_details and winner_details["Seed"] > seed_thresholds["Championship"]:
+            underdogs += 1
+    underdog_counts["Championship"] = underdogs
+    
+    # Calculate total underdogs
+    underdog_counts["Total"] = sum(underdog_counts.values())
+    
+    return underdog_counts
+
+def analyze_bracket(input) -> Dict:
+    """
+    Analyze the current bracket selections and provide recommendations
+    """
+    try:
+        # Track all picks for the bracket
+        selections = {
+            "First Round": [],
+            "Second Round": [],
+            "Sweet 16": [],
+            "Elite 8": [],
+            "Final Four": [],
+            "Championship": [],
+            "Champion": None
+        }
+        
+        # Get all selections by round
+        # Check each region's games through Elite 8
+        for region in ["east", "west", "south", "midwest"]:
+            # First round (8 games)
+            for i in range(8):
+                game_id = f"{region}_round1_game_{i}"
+                winner = get_game_winner(input, game_id)
+                if winner:
+                    selections["First Round"].append(winner)
+            
+            # Second round (4 games)
+            for i in range(4):
+                game_id = f"{region}_round2_game_{i}"
+                winner = get_game_winner(input, game_id)
+                if winner:
+                    selections["Second Round"].append(winner)
+            
+            # Sweet 16 (2 games)
+            for i in range(2):
+                game_id = f"{region}_round3_game_{i}"
+                winner = get_game_winner(input, game_id)
+                if winner:
+                    selections["Sweet 16"].append(winner)
+            
+            # Elite 8 (1 game)
+            game_id = f"{region}_round4_game_0"
+            winner = get_game_winner(input, game_id)
+            if winner:
+                selections["Elite 8"].append(winner)
+        
+        # Final Four (2 games)
+        for i in range(2):
+            game_id = f"final_round5_game_{i}"
+            winner = get_game_winner(input, game_id)
+            if winner:
+                selections["Final Four"].append(winner)
+        
+        # Championship (1 game)
+        game_id = "final_round6_game_0"
+        champion = get_game_winner(input, game_id)
+        if champion:
+            selections["Championship"].append(champion)
+            selections["Champion"] = champion
+        
+        # Count underdogs by round
+        underdog_counts = count_underdogs_by_round(input)
+        
+        # Get specific upsets
+        specific_upsets = []
+        if specific_upsets_df is not None:
+            for round_name, team_list in selections.items():
+                if round_name == "Champion":
+                    continue
+                    
+                # Find team details for each pick
+                for team_name in team_list:
+                    team_details = next((team for region_teams in teams.values() 
+                                      for team in region_teams if team["Team"] == team_name), None)
+                    if team_details:
+                        seed = team_details["Seed"]
+                        # Check if this is an upset according to the analysis
+                        round_upsets = specific_upsets_df[
+                            (specific_upsets_df['round'] == round_name) & 
+                            (specific_upsets_df['team'] == team_name) &
+                            (specific_upsets_df['seed'] == seed)
+                        ]
+                        
+                        if not round_upsets.empty and round_upsets['freq_diff'].values[0] > 0:
+                            # This is a valuable upset - add it to our list
+                            upset_value = round_upsets['freq_diff'].values[0]
+                            specific_upsets.append({
+                                'round': round_name,
+                                'team': team_name,
+                                'seed': seed,
+                                'advantage': upset_value
+                            })
+        
+        # Evaluate champion selection
+        champion_assessment = {
+            'champion': selections["Champion"],
+            'value': 0,
+            'recommendation': None
+        }
+        
+        if champion_df is not None and selections["Champion"]:
+            champion_row = champion_df[champion_df['team'] == selections["Champion"]]
+            if not champion_row.empty:
+                champion_assessment['value'] = champion_row['freq_diff'].values[0]
+                
+                if champion_assessment['value'] < 0:
+                    # Get top 3 recommended champions
+                    top_champions = champion_df[champion_df['freq_diff'] > 0].sort_values('freq_diff', ascending=False).head(3)
+                    if not top_champions.empty:
+                        champion_assessment['recommendation'] = top_champions[['team', 'seed', 'freq_diff']].to_dict('records')
+            else:
+                # Champion not found in analysis, recommend top 3
+                top_champions = champion_df[champion_df['freq_diff'] > 0].sort_values('freq_diff', ascending=False).head(3)
+                if not top_champions.empty:
+                    champion_assessment['recommendation'] = top_champions[['team', 'seed', 'freq_diff']].to_dict('records')
+        
+        # Compare underdog counts to optimal values
+        upset_assessment = {}
+        for round_name, count in underdog_counts.items():
+            if round_name in optimal_upset_dict:
+                optimal = optimal_upset_dict[round_name]["optimal"]
+                optimal_range = optimal_upset_dict[round_name]["range"]
+                
+                upset_assessment[round_name] = {
+                    'count': count,
+                    'optimal': optimal,
+                    'min': optimal_range[0],
+                    'max': optimal_range[1],
+                    'status': 'good' if optimal_range[0] <= count <= optimal_range[1] else 
+                              ('too_many' if count > optimal_range[1] else 'too_few')
+                }
+        
+        # Find valuable upsets that user is missing
+        missing_valuable_upsets = []
+        if specific_upsets_df is not None:
+            # Get top 10 most valuable specific upsets
+            top_upsets = specific_upsets_df[specific_upsets_df['freq_diff'] > 0].sort_values('freq_diff', ascending=False).head(10)
+            
+            for _, upset in top_upsets.iterrows():
+                round_name = upset['round']
+                team_name = upset['team']
+                
+                # Check if this valuable upset is missing from user's selections
+                if round_name in selections and team_name not in selections[round_name]:
+                    missing_valuable_upsets.append({
+                        'round': round_name,
+                        'team': team_name,
+                        'seed': upset['seed'],
+                        'advantage': upset['freq_diff']
+                    })
+        
+        # Overall assessment
+        bracket_score = 0
+        
+        # Add points for having optimal number of upsets
+        for round_name, assessment in upset_assessment.items():
+            if assessment['status'] == 'good':
+                bracket_score += 5
+            elif assessment['status'] == 'too_many' and assessment['count'] - assessment['max'] <= 2:
+                bracket_score += 2
+            elif assessment['status'] == 'too_few' and assessment['min'] - assessment['count'] <= 2:
+                bracket_score += 2
+        
+        # Add points for valuable specific upsets
+        bracket_score += len(specific_upsets) * 3
+        
+        # Add points for champion selection
+        if champion_assessment['value'] > 0:
+            bracket_score += 10
+        
+        # Maximum possible score: 
+        # 7 rounds * 5 points + 10 valuable upsets * 3 points + champion 10 points = 75
+        bracket_rating = {
+            'score': bracket_score,
+            'max_score': 75,
+            'percentage': int(bracket_score / 75 * 100),
+            'rating': 'Excellent' if bracket_score >= 60 else
+                     'Very Good' if bracket_score >= 45 else
+                     'Good' if bracket_score >= 30 else
+                     'Fair' if bracket_score >= 15 else
+                     'Needs Improvement'
+        }
+        
+        return {
+            'selections': selections,
+            'underdog_counts': underdog_counts,
+            'specific_upsets': specific_upsets,
+            'missing_valuable_upsets': missing_valuable_upsets,
+            'champion_assessment': champion_assessment,
+            'upset_assessment': upset_assessment,
+            'bracket_rating': bracket_rating
+        }
+    
+    except Exception as e:
+        logger.error(f"Error analyzing bracket: {str(e)}")
+        return {
+            'error': str(e),
+            'selections': {},
+            'underdog_counts': {},
+            'specific_upsets': [],
+            'missing_valuable_upsets': [],
+            'champion_assessment': {},
+            'upset_assessment': {},
+            'bracket_rating': {'rating': 'Error', 'score': 0, 'max_score': 75, 'percentage': 0}
+        }
+
+def format_bracket_assessment(assessment: Dict) -> str:
+    """Format bracket assessment into a readable text report"""
+    try:
+        if 'error' in assessment:
+            return f"Error analyzing bracket: {assessment['error']}"
+        
+        # General format
+        report = [
+            f"# Bracket Assessment",
+            f"## Overall Rating: {assessment['bracket_rating']['rating']} ({assessment['bracket_rating']['score']}/{assessment['bracket_rating']['max_score']} points)"
+        ]
+        
+        # Upset assessment
+        report.append("## Upset Analysis")
+        for round_name, details in assessment['upset_assessment'].items():
+            status_emoji = "✅" if details['status'] == 'good' else "⚠️" if details['status'] == 'too_many' else "❗"
+            report_line = f"{status_emoji} **{round_name}**: {details['count']} upsets "
+            
+            if details['status'] == 'good':
+                report_line += f"(optimal range is {details['min']}-{details['max']})"
+            elif details['status'] == 'too_many':
+                report_line += f"(consider reducing by {details['count'] - details['max']} to reach optimal range of {details['min']}-{details['max']})"
+            else:  # too_few
+                report_line += f"(consider adding {details['min'] - details['count']} to reach optimal range of {details['min']}-{details['max']})"
+            
+            report.append(report_line)
+        
+        # Champion assessment
+        report.append("## Champion Selection")
+        if assessment['champion_assessment']['champion']:
+            # Find champion details
+            champion_name = assessment['champion_assessment']['champion']
+            champion_details = next((team for region_teams in teams.values() 
+                                 for team in region_teams if team["Team"] == champion_name), None)
+            if champion_details:
+                champion_seed = champion_details['Seed']
+                report.append(f"Your champion: **({champion_seed}) {champion_name}**")
+                
+                if assessment['champion_assessment']['value'] > 0:
+                    report.append(f"✅ Good choice! This champion appears more frequently in winning brackets.")
+                elif assessment['champion_assessment']['value'] == 0:
+                    report.append(f"⚠️ Neutral choice. This champion appears equally in winning and non-winning brackets.")
+                else:
+                    report.append(f"❗ Consider a different champion. This pick appears more frequently in non-winning brackets.")
+                    
+                    if assessment['champion_assessment']['recommendation']:
+                        report.append("Suggested champion alternatives:")
+                        for idx, champ in enumerate(assessment['champion_assessment']['recommendation']):
+                            report.append(f"- ({champ['seed']}) {champ['team']}")
+            else:
+                report.append(f"Your champion: **{champion_name}**")
+        else:
+            report.append("❗ No champion selected. Please complete your bracket.")
+        
+        # Valuable specific upsets
+        report.append("## Valuable Upsets")
+        if assessment['specific_upsets']:
+            report.append("✅ Your bracket includes these valuable upset picks that appear more often in winning brackets:")
+            for upset in sorted(assessment['specific_upsets'], key=lambda x: x['advantage'], reverse=True):
+                report.append(f"- **{upset['round']}**: ({upset['seed']}) {upset['team']}")
+        else:
+            report.append("⚠️ Your bracket doesn't include any of the specific upsets that frequently appear in winning brackets.")
+        
+        if assessment['missing_valuable_upsets']:
+            report.append("### Consider adding these valuable upsets:")
+            for upset in assessment['missing_valuable_upsets'][:5]:  # Top 5 recommendations
+                report.append(f"- **{upset['round']}**: ({upset['seed']}) {upset['team']}")
+                
+        # General advice
+        report.append("## General Advice")
+        
+        # Add round-specific advice based on analysis
+        advice_points = []
+        
+        if assessment['upset_assessment']['First Round']['status'] == 'too_many':
+            advice_points.append("- **First Round**: You've selected too many upsets. Historically, winning brackets have fewer first-round upsets than you might expect.")
+        elif assessment['upset_assessment']['First Round']['status'] == 'too_few':
+            advice_points.append("- **First Round**: Consider adding a few more first-round upsets, particularly in the 10-12 seed range.")
+            
+        if assessment['upset_assessment']['Second Round']['status'] == 'too_many':
+            advice_points.append("- **Second Round**: You may have too many second-round upsets. Consider keeping more 1-4 seeds advancing to the Sweet 16.")
+        
+        # Add Sweet 16/Elite 8 advice based on pattern
+        sweet16_count = assessment['upset_assessment']['Sweet 16']['count']
+        elite8_count = assessment['upset_assessment']['Elite 8']['count']
+        
+        if sweet16_count > 4 and elite8_count > 2:
+            advice_points.append("- **Later Rounds**: Your bracket has many upsets in the later rounds. While exciting, this reduces your likelihood of success.")
+        
+        # Final Four advice
+        final_four_picks = assessment['selections'].get('Final Four', [])
+        final_four_seeds = []
+        for team in final_four_picks:
+            team_details = next((t for region_teams in teams.values() for t in region_teams if t["Team"] == team), None)
+            if team_details:
+                final_four_seeds.append(team_details['Seed'])
+        
+        if final_four_seeds and max(final_four_seeds) > 8:
+            advice_points.append("- **Final Four**: Your Final Four includes very high seeds. Historically, at least 2-3 of the Final Four teams are 1-4 seeds.")
+        
+        # Add all advice points
+        report.extend(advice_points)
+            
+        # Join with single newlines for proper Markdown rendering
+        return "\n".join(report)
+    except Exception as e:
+        logger.error(f"Error formatting bracket assessment: {str(e)}")
+        return f"Error formatting bracket assessment: {str(e)}"
+
 def server(input, output, session):
     """Main server function containing all callbacks and reactive logic"""
     
-    # # Track when conference filter changes
-    # @reactive.Effect
-    # def _():
-    #     logger.info(f"Conference changed to: {input.conference()}")
-
-    # # Debug info output
-    # @output
-    # @render.text
-    # def debug_info():
-    #     return f"Current Conference: {input.conference()}\nLast Updated: {datetime.now()}"
-
     # First Round UI Outputs
     @output
     @render.ui
@@ -328,115 +839,90 @@ def server(input, output, session):
         matchups = [(winner1_details, winner2_details)]
         return create_round_ui(input, "final", 6, matchups)
 
-    # Simulation Results Output
+    # Bracket Assessment Output
     @output
-    @render.text
-    def simulation_results():
-        if input.simulate() == 0:
-            return ""
-            
-        try:
-            logger.debug("Starting simulation")
-            # Track selections for all rounds
-            selections = {
-                "First Round": [],
-                "Second Round": [],
-                "Sweet 16": [],
-                "Elite 8": [],
-                "Final Four": [],
-                "Championship": []
-            }
-            
-            # Check each region's games through Elite 8
-            for region in ["east", "west", "south", "midwest"]:
-                logger.debug(f"Checking {region} region")
-                
-                # First round (8 games)
-                for i in range(8):
-                    game_id = f"{region}_round1_game_{i}"
-                    winner = get_game_winner(input, game_id)
+    @render.ui
+    def assessment_results():
+        # Track changes in bracket selections
+        bracket_selections = []
+        for region in ["east", "west", "south", "midwest"]:
+            # First round (8 games)
+            for i in range(8):
+                game_id = f"{region}_round1_game_{i}"
+                try:
+                    winner = input[game_id]()
                     if winner:
-                        selections["First Round"].append(winner)
-                
-                # Second round (4 games)
-                for i in range(4):
-                    game_id = f"{region}_round2_game_{i}"
-                    winner = get_game_winner(input, game_id)
-                    if winner:
-                        selections["Second Round"].append(winner)
-                
-                # Sweet 16 (2 games)
-                for i in range(2):
-                    game_id = f"{region}_round3_game_{i}"
-                    winner = get_game_winner(input, game_id)
-                    if winner:
-                        selections["Sweet 16"].append(winner)
-                
-                # Elite 8 (1 game)
-                game_id = f"{region}_round4_game_0"
-                winner = get_game_winner(input, game_id)
-                if winner:
-                    selections["Elite 8"].append(winner)
-            
-            # Final Four games
-            for i in range(2):
-                game_id = f"final_round5_game_{i}"
-                winner = get_game_winner(input, game_id)
-                if winner:
-                    selections["Final Four"].append(winner)
-            
-            # Championship game
-            championship_winner = get_game_winner(input, "final_round6_game_0")
-            if championship_winner:
-                selections["Championship"].append(championship_winner)
-            
-            # Create the user's bracket
-            my_bracket = create_bracket_with_picks(actual_bracket.teams, selections)
-
-            # Create a new pool with the actual tournament results
-            pool = Pool(actual_bracket)
-            
-            # Add user's bracket to the pool, setting simulate=False to preserve user picks
-            pool.add_entry("Your Bracket", my_bracket, simulate=False)
-
-            # Add computer-generated entries with varying upset factors
-            num_entries = int(input.num_entries())
-            num_sims = int(input.num_sims())
-            
-            for i in range(num_entries):
-                # Create a fresh bracket from teams for each entry
-                entry_bracket = Bracket(actual_bracket.teams)
-                
-                # Vary the upset factor to create different predictions
-                upset_factor = 0.1 + (i / num_entries) * 0.3
-                for game in entry_bracket.games:
-                    game.upset_factor = upset_factor
+                        bracket_selections.append(f"{game_id}:{winner}")
+                except:
+                    pass
                     
-                entry_name = f"Entry_{i+1}"
-                # These entries will be simulated normally
-                pool.add_entry(entry_name, entry_bracket)
+            # Second round (4 games)
+            for i in range(4):
+                game_id = f"{region}_round2_game_{i}"
+                try:
+                    winner = input[game_id]()
+                    if winner:
+                        bracket_selections.append(f"{game_id}:{winner}")
+                except:
+                    pass
             
-            # Simulate pool
-            results = pool.simulate_pool(num_sims=num_sims)
+            # Sweet 16 (2 games)
+            for i in range(2):
+                game_id = f"{region}_round3_game_{i}"
+                try:
+                    winner = input[game_id]()
+                    if winner:
+                        bracket_selections.append(f"{game_id}:{winner}")
+                except:
+                    pass
             
-            # Format the results for display
-            formatted_results = f"Simulation with {num_entries} entries and {num_sims} simulations:\n\n"
-            formatted_results += "Rank | Entry | Win % | Avg Score\n"
-            formatted_results += "-" * 40 + "\n"
+            # Elite 8 (1 game)
+            game_id = f"{region}_round4_game_0"
+            try:
+                winner = input[game_id]()
+                if winner:
+                    bracket_selections.append(f"{game_id}:{winner}")
+            except:
+                pass
+        
+        # Final Four (2 games)
+        for i in range(2):
+            game_id = f"final_round5_game_{i}"
+            try:
+                winner = input[game_id]()
+                if winner:
+                    bracket_selections.append(f"{game_id}:{winner}")
+            except:
+                pass
+        
+        # Championship (1 game)
+        game_id = "final_round6_game_0"
+        try:
+            winner = input[game_id]()
+            if winner:
+                bracket_selections.append(f"{game_id}:{winner}")
+        except:
+            pass
+        
+        # Also use trigger from tab switch
+        try:
+            input.__forceAssessmentUpdate__
+        except:
+            pass
             
-            # Add top 10 results (or all if fewer than 10)
-            for i, row in results.iterrows():
-                if i >= 10:  # Show only top 10
-                    break
-                formatted_results += f"{i+1}. {row['name']} | {row['win_pct']:.1%} | {row['avg_score']:.1f}\n"
-            
-            your_rank = results[results['name'] == 'Your Bracket'].index[0] + 1 if 'Your Bracket' in results['name'].values else "N/A"
-            formatted_results += f"\nYour bracket's rank: {your_rank} out of {len(results)}"
-            formatted_results += f"\nNumber of upsets: {my_bracket.total_underdogs()}"
-            formatted_results += f"\nLog likelihood: {my_bracket.calculate_log_probability()}"
-            
-            return formatted_results
-
+        # Check if we have any selections
+        if not bracket_selections:
+            return ui.div(
+                ui.p("Please make your bracket selections in the region tabs, then return here for an assessment.", 
+                    class_="text-center text-muted mt-4")
+            )
+        
+        # Process the assessment as before
+        try:
+            assessment = analyze_bracket(input)
+            assessment_text = format_bracket_assessment(assessment)
+            html_content = markdown(assessment_text)
+            return ui.HTML(html_content)
         except Exception as e:
-            logger.error(f"Error in simulation: {str(e)}", exc_info=True)
-            return f"Error running simulation: {str(e)}"
+            logger.error(f"Error in bracket assessment: {str(e)}", exc_info=True)
+            return ui.p(f"Error assessing bracket: {str(e)}", class_="text-danger")

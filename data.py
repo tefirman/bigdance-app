@@ -10,14 +10,22 @@
 '''
 
 import logging
-from bigdance.wn_cbb_scraper import Standings
-from bigdance.bigdance_integration import create_teams_from_standings
+# from bigdance.wn_cbb_scraper import Standings
+# from bigdance.bigdance_integration import create_teams_from_standings
+from bigdance.espn_tc_scraper import extract_json_data, extract_first_round_from_json, convert_espn_to_bigdance, get_espn_bracket
 
 logger = logging.getLogger(__name__)
 
-# Pulling tournament team data from Warren Nolan for now
-standings = Standings()
-actual_bracket = create_teams_from_standings(standings)
+# # Pulling tournament team data from Warren Nolan for now
+# standings = Standings()
+# actual_bracket = create_teams_from_standings(standings)
+
+# Pulling tournament team data from ESPN
+html_content = get_espn_bracket()
+bracket_json = extract_json_data(html_content)
+first_round = extract_first_round_from_json(bracket_json)
+actual_bracket = convert_espn_to_bigdance(first_round)
+
 teams = {}
 for region in ["East","West","South","Midwest"]:
     teams[region] = [{"Team": team.name, "Seed": team.seed, "Rating": team.rating} \

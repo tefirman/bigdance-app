@@ -20,11 +20,25 @@ from server import server
 from data import initialize_tournament_data
 
 # Set up logging configuration
+logs_dir = Path('logs')
+logs_dir.mkdir(exist_ok=True)
+
+# Create analysis_data directory if it doesn't exist
+analysis_dir = Path('analysis_data/men_100entries')
+if not analysis_dir.exists():
+    analysis_dir.mkdir(exist_ok=True)
+    # Copy README to analysis_data directory if it exists
+    readme_path = Path('analysis_data_README.md')
+    if readme_path.exists():
+        with open(readme_path, 'r') as source:
+            with open(analysis_dir / 'README.md', 'w') as dest:
+                dest.write(source.read())
+
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(Path('logs') / f'app_{datetime.now().strftime("%Y%m%d")}.log'),
+        logging.FileHandler(logs_dir / f'app_{datetime.now().strftime("%Y%m%d")}.log'),
         logging.StreamHandler()
     ]
 )
