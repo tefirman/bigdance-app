@@ -340,6 +340,7 @@ app_ui = ui.page_fluid(
                 "",  # No label, as we're using the label tag above
                 choices={
                     "10": "10 Entries",
+                    "25": "25 Entries",
                     "50": "50 Entries",
                     "100": "100 Entries"
                 },
