@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 from pathlib import Path
 from markdown import markdown
+from bigdance.cbb_brackets import Bracket, Team
 
 from data import teams
 
@@ -144,93 +145,182 @@ def get_game_winner(input, game_id: str) -> Optional[str]:
         logger.error(f"Error getting winner for {game_id}: {str(e)}")
         return None
 
+def get_bracket(input) -> 'Bracket':
+    """
+    Get or create the current bracket based on UI selections.
+    This function can be called from anywhere to get the current state of the bracket.
+    
+    Args:
+        input: Shiny input object containing user selections
+        
+    Returns:
+        Bracket object representing the current state of the bracket
+    """
+    # Use a reactive value cache if we implement this in Shiny
+    return create_bracket_from_picks(input)
+
+def convert_team_to_dict(team: 'Team') -> Dict:
+    """
+    Convert a Team object to a dictionary format compatible with the UI.
+    
+    Args:
+        team: Team object from the Bracket class
+        
+    Returns:
+        Dictionary representation of the team
+    """
+    if team is None:
+        return None
+        
+    return {
+        "Team": team.name,
+        "Seed": team.seed,
+        "Rating": team.rating,
+        "Conference": team.conference,
+        "Region": team.region
+    }
+
+def get_matchups_for_round(input, region: str, round_num: int) -> List[Tuple[Optional[Dict], Optional[Dict]]]:
+    """
+    Get matchups for a specific region and round based on the current bracket state.
+    
+    Args:
+        input: Shiny input object containing user selections
+        region: Region name (East, West, South, Midwest)
+        round_num: Round number (1-4)
+        
+    Returns:
+        List of tuple pairs (team1, team2) representing matchups, in dict format for UI
+    """
+    from bigdance.cbb_brackets import Game
+    
+    # Create or get the bracket
+    bracket = get_bracket(input)
+    
+    # For first round, the games are already defined in the bracket
+    if round_num == 1:
+        # Filter games from the first round in this region
+        matchups = []
+        for game in bracket.games:
+            if game.region.lower() == region.lower():
+                matchups.append((
+                    convert_team_to_dict(game.team1),
+                    convert_team_to_dict(game.team2)
+                ))
+        return matchups
+    
+    # For later rounds, we need to construct the games based on winners from previous rounds
+    # Map round_num to round names used in bracket.results
+    round_names = {
+        1: "First Round",
+        2: "Second Round",
+        3: "Sweet 16",
+        4: "Elite 8",
+        5: "Final Four",
+        6: "Championship"
+    }
+    
+    # Get winners from the previous round
+    prev_round_name = round_names[round_num - 1]
+    if prev_round_name not in bracket.results:
+        # No results for previous round yet
+        return [(None, None)] * (2**(4 - round_num))  # Return empty matchups
+    
+    # Filter teams from the previous round in this region
+    region_teams = [team for team in bracket.results[prev_round_name] 
+                   if team.region.lower() == region.lower()]
+    
+    # Create matchups for the current round
+    matchups = []
+    for i in range(0, len(region_teams), 2):
+        team1 = region_teams[i] if i < len(region_teams) else None
+        team2 = region_teams[i+1] if i+1 < len(region_teams) else None
+        matchups.append((
+            convert_team_to_dict(team1),
+            convert_team_to_dict(team2)
+        ))
+    
+    return matchups
+
+def get_final_four_matchups(input) -> List[Tuple[Optional[Dict], Optional[Dict]]]:
+    """Get Final Four matchups based on Elite 8 winners"""
+    bracket = get_bracket(input)
+    
+    # Check if Elite 8 results exist
+    if "Elite 8" not in bracket.results:
+        return [(None, None), (None, None)]
+    
+    # Get regional champions
+    elite_eight_winners = bracket.results["Elite 8"]
+    
+    # Create Final Four matchups (traditionally East vs West, South vs Midwest)
+    region_to_index = {"East": 0, "West": 1, "South": 2, "Midwest": 3}
+    
+    # Sort winners by region to ensure consistent matchups
+    sorted_winners = sorted(elite_eight_winners, key=lambda team: region_to_index.get(team.region, 99))
+    
+    # Create matchups
+    matchups = []
+    for i in range(0, len(sorted_winners), 2):
+        team1 = sorted_winners[i] if i < len(sorted_winners) else None
+        team2 = sorted_winners[i+1] if i+1 < len(sorted_winners) else None
+        matchups.append((
+            convert_team_to_dict(team1),
+            convert_team_to_dict(team2)
+        ))
+    
+    # Ensure we return exactly 2 matchups
+    while len(matchups) < 2:
+        matchups.append((None, None))
+    
+    return matchups
+
+def get_championship_matchup(input) -> List[Tuple[Optional[Dict], Optional[Dict]]]:
+    """Get Championship matchup based on Final Four winners"""
+    bracket = get_bracket(input)
+    
+    # Check if Final Four results exist
+    if "Final Four" not in bracket.results or not bracket.results["Final Four"]:
+        return [(None, None)]
+    
+    final_four_winners = bracket.results["Final Four"]
+    
+    # Create Championship matchup
+    if len(final_four_winners) >= 2:
+        return [(
+            convert_team_to_dict(final_four_winners[0]),
+            convert_team_to_dict(final_four_winners[1])
+        )]
+    else:
+        return [(None, None)]
+
+# Replace the specific functions with a general function that calls the shared implementation
 def get_round1_matchups(region: str) -> List[Tuple[Optional[Dict], Optional[Dict]]]:
-    """
-    Get initial matchups for first round games in a region following NCAA tournament seeding rules:
-    1 vs 16, 8 vs 9, 5 vs 12, 4 vs 13, 6 vs 11, 3 vs 14, 7 vs 10, 2 vs 15
-    """
+    """Get initial matchups for first round games in a region"""
+    # Create bracket using initial teams data
+    from bigdance.cbb_brackets import Bracket, Team
+    
+    all_teams = []
+    for region_name, region_teams in teams.items():
+        for team_data in region_teams:
+            all_teams.append(Team(
+                name=team_data["Team"],
+                seed=team_data["Seed"],
+                region=region_name,
+                rating=team_data.get("Rating", 1500),
+                conference="Unknown"
+            ))
+    
+    bracket = Bracket(all_teams)
+    
+    # Filter games in specified region
     matchups = []
-    region_teams = teams[region]
-    
-    # Define first round matchup pattern [(seed1, seed2), ...]
-    seed_matchups = [
-        (1, 16), (8, 9), (5, 12), (4, 13),
-        (6, 11), (3, 14), (7, 10), (2, 15)
-    ]
-    
-    # Create dictionary mapping seeds to teams
-    seed_to_team = {team["Seed"]: team for team in region_teams}
-    
-    # Create matchups following seed pattern
-    for seed1, seed2 in seed_matchups:
-        team1 = seed_to_team.get(seed1)
-        team2 = seed_to_team.get(seed2)
-        matchups.append((team1, team2))
-    
-    return matchups
-
-def get_second_round_matchups(input, region: str) -> List[Tuple[Optional[Dict], Optional[Dict]]]:
-    """
-    Get second round matchups based on first round selections.
-    Winners of games (1v16 vs 8v9), (5v12 vs 4v13), (6v11 vs 3v14), (7v10 vs 2v15)
-    """
-    matchups = []
-    region_teams = teams[region]
-    
-    # Define which first round games pair up in second round
-    second_round_pairs = [(0, 1), (2, 3), (4, 5), (6, 7)]
-    
-    for game1_idx, game2_idx in second_round_pairs:
-        game1_id = f"{region.lower()}_round1_game_{game1_idx}"
-        game2_id = f"{region.lower()}_round1_game_{game2_idx}"
-        
-        # Get winners from first round if selected
-        winner1 = get_game_winner(input, game1_id)
-        winner2 = get_game_winner(input, game2_id)
-        
-        # Find team details for winners
-        winner1_details = next((team for team in region_teams if team["Team"] == winner1), None) if winner1 else None
-        winner2_details = next((team for team in region_teams if team["Team"] == winner2), None) if winner2 else None
-        
-        matchups.append((winner1_details, winner2_details))
-    
-    return matchups
-
-def get_round_matchups(input, region: str, round_num: int) -> List[Tuple[Optional[Dict], Optional[Dict]]]:
-    """
-    Get matchups for Sweet 16 (round 3) and Elite 8 (round 4) based on previous round selections.
-    Sweet 16: Winners of (1v16/8v9 vs 5v12/4v13) and (6v11/3v14 vs 7v10/2v15)
-    Elite 8: Winners of Sweet 16 games
-    """
-    matchups = []
-    region_teams = teams[region]
-    
-    # Calculate number of games in current round
-    current_round_games = 2 ** (4 - round_num)  # 2 for Sweet 16, 1 for Elite 8
-    
-    # Define which previous round games pair up
-    game_pairs = [(i*2, i*2+1) for i in range(current_round_games)]
-    
-    for game1_idx, game2_idx in game_pairs:
-        prev_game1_id = f"{region.lower()}_round{round_num-1}_game_{game1_idx}"
-        prev_game2_id = f"{region.lower()}_round{round_num-1}_game_{game2_idx}"
-        
-        winner1 = get_game_winner(input, prev_game1_id)
-        winner2 = get_game_winner(input, prev_game2_id)
-        
-        # Find team details within the specific region first
-        winner1_details = next((team for team in region_teams if team["Team"] == winner1), None)
-        winner2_details = next((team for team in region_teams if team["Team"] == winner2), None)
-        
-        # If not found in region (could happen in later rounds), search all regions
-        if not winner1_details and winner1:
-            winner1_details = next((team for r_teams in teams.values() 
-                                  for team in r_teams if team["Team"] == winner1), None)
-        if not winner2_details and winner2:
-            winner2_details = next((team for r_teams in teams.values() 
-                                  for team in r_teams if team["Team"] == winner2), None)
-        
-        matchups.append((winner1_details, winner2_details))
+    for game in bracket.games:
+        if game.region.lower() == region.lower():
+            matchups.append((
+                convert_team_to_dict(game.team1),
+                convert_team_to_dict(game.team2)
+            ))
     
     return matchups
 
@@ -287,237 +377,149 @@ def create_round_ui(input, region: str, round_num: int, matchups: List[Tuple[Dic
         *games
     )
 
-def get_final_four_matchups(input):
-    """Get Final Four matchups based on Elite 8 selections"""
-    winners = []
-    for region in ["east", "west", "south", "midwest"]:
-        winner = get_game_winner(input, f"{region}_round4_game_0")  # Elite 8 winner
-        if winner:
-            winner_details = next((team for region_teams in teams.values() 
-                                 for team in region_teams if team["Team"] == winner), None)
-            winners.append(winner_details)
+def create_bracket_from_picks(input) -> Bracket:
+    """
+    Create a Bracket object from the user's selections in the UI.
     
-    # Create Final Four matchups (East vs West, South vs Midwest)
-    matchups = []
-    if len(winners) >= 2:
-        matchups.append((winners[0] if len(winners) > 0 else None, 
-                        winners[1] if len(winners) > 1 else None))
-    if len(winners) >= 4:
-        matchups.append((winners[2] if len(winners) > 2 else None, 
-                        winners[3] if len(winners) > 3 else None))
-    return matchups
-
-def count_underdogs_by_round(input) -> Dict[str, int]:
+    Args:
+        input: Shiny input object containing user selections
+        
+    Returns:
+        Bracket object populated with the user's picks
     """
-    Count the number of underdogs selected in the bracket by round
-    An underdog is defined as a team with a seed higher than the expected seed for that round
-    """
-    underdog_counts = {}
-    round_names = {
-        1: "First Round",
-        2: "Second Round",
-        3: "Sweet 16",
-        4: "Elite 8",
-        5: "Final Four",
-        6: "Championship"
+    # Create Team objects from teams data
+    all_teams = []
+    for region_name, region_teams in teams.items():
+        for team_data in region_teams:
+            all_teams.append(Team(
+                name=team_data["Team"],
+                seed=team_data["Seed"],
+                region=region_name,
+                rating=team_data.get("Rating", 1500),
+                conference="Unknown"  # Conference not critical for analysis
+            ))
+    
+    # Create an empty bracket with these teams
+    bracket = Bracket(all_teams)
+    
+    # Initialize results dictionary
+    bracket.results = {
+        "First Round": [],
+        "Second Round": [],
+        "Sweet 16": [],
+        "Elite 8": [],
+        "Final Four": [],
+        "Championship": []
     }
     
-    # Define thresholds for underdogs by round
-    # Teams with seeds higher than these thresholds are considered underdogs
-    seed_thresholds = {
-        "First Round": 8,  # Seeds 9-16 are underdogs
-        "Second Round": 4,  # Seeds 5-16 are underdogs
-        "Sweet 16": 2,  # Seeds 3-16 are underdogs
-        "Elite 8": 1,  # Seeds 2-16 are underdogs
-        "Final Four": 1,  # Seeds 2-16 are underdogs
-        "Championship": 1,  # Seeds 2-16 are underdogs
-    }
-    
-    # Check each region's games through Elite 8
+    # Get user selections for each round
+    # First round through Elite 8 (regions)
     for region in ["east", "west", "south", "midwest"]:
         # First round (8 games)
-        underdogs = 0
         for i in range(8):
             game_id = f"{region}_round1_game_{i}"
-            winner = get_game_winner(input, game_id)
-            if winner:
-                # Find team details
-                winner_details = next((team for region_teams in teams.values() 
-                                     for team in region_teams if team["Team"] == winner), None)
-                if winner_details and winner_details["Seed"] > seed_thresholds["First Round"]:
-                    underdogs += 1
-        underdog_counts["First Round"] = underdog_counts.get("First Round", 0) + underdogs
+            winner_name = get_game_winner(input, game_id)
+            if winner_name:
+                winner = next((t for t in all_teams if t.name == winner_name), None)
+                if winner:
+                    bracket.results["First Round"].append(winner)
         
         # Second round (4 games)
-        underdogs = 0
         for i in range(4):
             game_id = f"{region}_round2_game_{i}"
-            winner = get_game_winner(input, game_id)
-            if winner:
-                # Find team details
-                winner_details = next((team for region_teams in teams.values() 
-                                     for team in region_teams if team["Team"] == winner), None)
-                if winner_details and winner_details["Seed"] > seed_thresholds["Second Round"]:
-                    underdogs += 1
-        underdog_counts["Second Round"] = underdog_counts.get("Second Round", 0) + underdogs
+            winner_name = get_game_winner(input, game_id)
+            if winner_name:
+                winner = next((t for t in all_teams if t.name == winner_name), None)
+                if winner:
+                    bracket.results["Second Round"].append(winner)
         
         # Sweet 16 (2 games)
-        underdogs = 0
         for i in range(2):
             game_id = f"{region}_round3_game_{i}"
-            winner = get_game_winner(input, game_id)
-            if winner:
-                # Find team details
-                winner_details = next((team for region_teams in teams.values() 
-                                     for team in region_teams if team["Team"] == winner), None)
-                if winner_details and winner_details["Seed"] > seed_thresholds["Sweet 16"]:
-                    underdogs += 1
-        underdog_counts["Sweet 16"] = underdog_counts.get("Sweet 16", 0) + underdogs
+            winner_name = get_game_winner(input, game_id)
+            if winner_name:
+                winner = next((t for t in all_teams if t.name == winner_name), None)
+                if winner:
+                    bracket.results["Sweet 16"].append(winner)
         
         # Elite 8 (1 game)
-        underdogs = 0
         game_id = f"{region}_round4_game_0"
-        winner = get_game_winner(input, game_id)
-        if winner:
-            # Find team details
-            winner_details = next((team for region_teams in teams.values() 
-                                 for team in region_teams if team["Team"] == winner), None)
-            if winner_details and winner_details["Seed"] > seed_thresholds["Elite 8"]:
-                underdogs += 1
-        underdog_counts["Elite 8"] = underdog_counts.get("Elite 8", 0) + underdogs
+        winner_name = get_game_winner(input, game_id)
+        if winner_name:
+            winner = next((t for t in all_teams if t.name == winner_name), None)
+            if winner:
+                bracket.results["Elite 8"].append(winner)
     
     # Final Four (2 games)
-    underdogs = 0
     for i in range(2):
         game_id = f"final_round5_game_{i}"
-        winner = get_game_winner(input, game_id)
-        if winner:
-            # Find team details
-            winner_details = next((team for region_teams in teams.values() 
-                                 for team in region_teams if team["Team"] == winner), None)
-            if winner_details and winner_details["Seed"] > seed_thresholds["Final Four"]:
-                underdogs += 1
-    underdog_counts["Final Four"] = underdogs
+        winner_name = get_game_winner(input, game_id)
+        if winner_name:
+            winner = next((t for t in all_teams if t.name == winner_name), None)
+            if winner:
+                bracket.results["Final Four"].append(winner)
     
     # Championship (1 game)
-    underdogs = 0
     game_id = "final_round6_game_0"
-    winner = get_game_winner(input, game_id)
-    if winner:
-        # Find team details
-        winner_details = next((team for region_teams in teams.values() 
-                             for team in region_teams if team["Team"] == winner), None)
-        if winner_details and winner_details["Seed"] > seed_thresholds["Championship"]:
-            underdogs += 1
-    underdog_counts["Championship"] = underdogs
+    winner_name = get_game_winner(input, game_id)
+    if winner_name:
+        winner = next((t for t in all_teams if t.name == winner_name), None)
+        if winner:
+            bracket.results["Championship"].append(winner)
+            bracket.results["Champion"] = winner
     
-    # Calculate total underdogs
-    underdog_counts["Total"] = sum(underdog_counts.values())
-    
-    return underdog_counts
+    return bracket
+
 
 def analyze_bracket(input) -> Dict:
     """
     Analyze the current bracket selections and provide recommendations
     """
     try:
-        # Track all picks for the bracket
+        # Create a Bracket object from user selections
+        bracket = create_bracket_from_picks(input)
+        
+        # Extract simple selection dictionary for compatibility with other functions
+        # (in case any of them still need access to the selections)
         selections = {
-            "First Round": [],
-            "Second Round": [],
-            "Sweet 16": [],
-            "Elite 8": [],
-            "Final Four": [],
-            "Championship": [],
-            "Champion": None
+            round_name: [team.name for team in teams_list] 
+            for round_name, teams_list in bracket.results.items() 
+            if round_name != "Champion"
         }
         
-        # Get all selections by round
-        # Check each region's games through Elite 8
-        for region in ["east", "west", "south", "midwest"]:
-            # First round (8 games)
-            for i in range(8):
-                game_id = f"{region}_round1_game_{i}"
-                winner = get_game_winner(input, game_id)
-                if winner:
-                    selections["First Round"].append(winner)
-            
-            # Second round (4 games)
-            for i in range(4):
-                game_id = f"{region}_round2_game_{i}"
-                winner = get_game_winner(input, game_id)
-                if winner:
-                    selections["Second Round"].append(winner)
-            
-            # Sweet 16 (2 games)
-            for i in range(2):
-                game_id = f"{region}_round3_game_{i}"
-                winner = get_game_winner(input, game_id)
-                if winner:
-                    selections["Sweet 16"].append(winner)
-            
-            # Elite 8 (1 game)
-            game_id = f"{region}_round4_game_0"
-            winner = get_game_winner(input, game_id)
-            if winner:
-                selections["Elite 8"].append(winner)
+        # Add Champion separately since it's a single Team object
+        if "Champion" in bracket.results and bracket.results["Champion"]:
+            selections["Champion"] = bracket.results["Champion"].name
+        else:
+            selections["Champion"] = None
         
-        # Final Four (2 games)
-        for i in range(2):
-            game_id = f"final_round5_game_{i}"
-            winner = get_game_winner(input, game_id)
-            if winner:
-                selections["Final Four"].append(winner)
-        
-        # Championship (1 game)
-        game_id = "final_round6_game_0"
-        champion = get_game_winner(input, game_id)
-        if champion:
-            selections["Championship"].append(champion)
-            selections["Champion"] = champion
-        
-        # Count underdogs by round
-        underdog_counts = count_underdogs_by_round(input)
+        # Use Bracket built-in methods for underdogs analysis
+        bracket.identify_underdogs()
+        underdog_counts = bracket.count_underdogs_by_round()
+        underdog_counts["Total"] = bracket.total_underdogs()
         
         # Get specific upsets
         specific_upsets = []
         if specific_upsets_df is not None:
-            for round_name, team_list in selections.items():
-                if round_name == "Champion":
-                    continue
+            for round_name, team_list in bracket.underdogs_by_round.items():
+                for team in team_list:
+                    # Check if this is an upset according to the analysis
+                    round_upsets = specific_upsets_df[
+                        (specific_upsets_df['round'] == round_name) & 
+                        (specific_upsets_df['team'] == team.name) &
+                        (specific_upsets_df['seed'] == team.seed)
+                    ]
                     
-                # Find team details for each pick
-                for team_name in team_list:
-                    team_details = None
-                    team_region = None
-                    
-                    # Find team details including region
-                    for region, region_teams in teams.items():
-                        found_team = next((team for team in region_teams if team["Team"] == team_name), None)
-                        if found_team:
-                            team_details = found_team
-                            team_region = region
-                            break
-                            
-                    if team_details:
-                        seed = team_details["Seed"]
-                        # Check if this is an upset according to the analysis
-                        round_upsets = specific_upsets_df[
-                            (specific_upsets_df['round'] == round_name) & 
-                            (specific_upsets_df['team'] == team_name) &
-                            (specific_upsets_df['seed'] == seed)
-                        ]
-                        
-                        if not round_upsets.empty and round_upsets['freq_diff'].values[0] > 0:
-                            # This is a valuable upset - add it to our list
-                            upset_value = round_upsets['freq_diff'].values[0]
-                            specific_upsets.append({
-                                'round': round_name,
-                                'team': team_name,
-                                'seed': seed,
-                                'region': team_region,
-                                'advantage': upset_value
-                            })
+                    if not round_upsets.empty and round_upsets['freq_diff'].values[0] > 0:
+                        # This is a valuable upset - add it to our list
+                        upset_value = round_upsets['freq_diff'].values[0]
+                        specific_upsets.append({
+                            'round': round_name,
+                            'team': team.name,
+                            'seed': team.seed,
+                            'region': team.region,
+                            'advantage': upset_value
+                        })
         
         # Evaluate champion selection
         champion_assessment = {
@@ -607,7 +609,12 @@ def analyze_bracket(input) -> Dict:
                 team_name = upset['team']
                 
                 # Check if this valuable upset is missing from user's selections
-                if round_name in selections and team_name not in selections[round_name]:
+                is_missing = True
+                if round_name in selections:
+                    if team_name in selections[round_name]:
+                        is_missing = False
+                
+                if is_missing:
                     # Find team region
                     team_region = None
                     for region, region_teams in teams.items():
@@ -693,20 +700,32 @@ def format_bracket_assessment(assessment: Dict, input) -> str:
             f"## Overall Rating: {assessment['bracket_rating']['rating']} ({assessment['bracket_rating']['score']}/{assessment['bracket_rating']['max_score']} points)"
         ]
         
+        # At the end of analyze_bracket
+        logger.debug(f"Assessment keys: {assessment.keys()}")
+        if 'upset_assessment' in assessment:
+            logger.debug(f"Upset assessment keys: {assessment['upset_assessment'].keys()}")
+
         # Upset assessment
         report.append("## Upset Analysis")
-        for round_name, details in assessment['upset_assessment'].items():
-            status_emoji = "✅" if details['status'] == 'good' else "⚠️" if details['status'] == 'too_many' else "❗"
-            report_line = f"{status_emoji} **{round_name}**: {details['count']} upsets "
-            
-            if details['status'] == 'good':
-                report_line += f"(optimal range is {details['min']}-{details['max']})"
-            elif details['status'] == 'too_many':
-                report_line += f"(consider reducing by {details['count'] - details['max']} to reach optimal range of {details['min']}-{details['max']})"
-            else:  # too_few
-                report_line += f"(consider adding {details['min'] - details['count']} to reach optimal range of {details['min']}-{details['max']})"
-            
-            report.append(report_line)
+        expected_rounds = ["First Round", "Second Round", "Sweet 16", "Elite 8", "Final Four", "Championship", "Total"]
+        for round_name in expected_rounds:
+            if round_name in assessment['upset_assessment']:
+                details = assessment['upset_assessment'][round_name]
+                status_emoji = "✅" if details['status'] == 'good' else "⚠️" if details['status'] == 'too_many' else "❗"
+                report_line = f"{status_emoji} **{round_name}**: {details['count']} upsets "
+                
+                if details['status'] == 'good':
+                    report_line += f"(optimal range is {details['min']}-{details['max']})"
+                elif details['status'] == 'too_many':
+                    report_line += f"(consider reducing by {details['count'] - details['max']} to reach optimal range of {details['min']}-{details['max']})"
+                else:  # too_few
+                    report_line += f"(consider adding {details['min'] - details['count']} to reach optimal range of {details['min']}-{details['max']})"
+                
+                report.append(report_line)
+            else:
+                # Skip or add placeholder for missing rounds
+                if round_name != "Total":  # Don't show message for Total if missing
+                    report.append(f"⚠️ **{round_name}**: No data available")
         
         # Champion assessment
         report.append("## Champion Selection")
@@ -808,8 +827,11 @@ def format_bracket_assessment(assessment: Dict, input) -> str:
         # Join with single newlines for proper Markdown rendering
         return "\n".join(report)
     except Exception as e:
-        logger.error(f"Error formatting bracket assessment: {str(e)}")
-        return f"Error formatting bracket assessment: {str(e)}"
+        if str(e) == "First Round":
+            return "Looks like you haven't made any actual picks, keep going..."
+        else:
+            logger.error(f"Error formatting bracket assessment: {str(e)}")
+            return f"Error formatting bracket assessment: {str(e)}"
 
 def server(input, output, session):
     """Main server function containing all callbacks and reactive logic"""
@@ -832,122 +854,95 @@ def server(input, output, session):
     @output
     @render.ui
     def east_bracket_round1():
-        matchups = get_round1_matchups("East")
-        return create_round_ui(input, "East", 1, matchups)
+        return create_round_ui(input, "East", 1, get_round1_matchups("East"))
 
     @output
     @render.ui
     def west_bracket_round1():
-        matchups = get_round1_matchups("West")
-        return create_round_ui(input, "West", 1, matchups)
+        return create_round_ui(input, "West", 1, get_round1_matchups("West"))
 
     @output
     @render.ui
     def south_bracket_round1():
-        matchups = get_round1_matchups("South")
-        return create_round_ui(input, "South", 1, matchups)
+        return create_round_ui(input, "South", 1, get_round1_matchups("South"))
 
     @output
     @render.ui
     def midwest_bracket_round1():
-        matchups = get_round1_matchups("Midwest")
-        return create_round_ui(input, "Midwest", 1, matchups)
+        return create_round_ui(input, "Midwest", 1, get_round1_matchups("Midwest"))
 
     # Second Round UI Outputs
     @output
     @render.ui
     def east_bracket_round2():
-        matchups = get_second_round_matchups(input, "East")
-        return create_round_ui(input, "East", 2, matchups)
+        return create_round_ui(input, "East", 2, get_matchups_for_round(input, "East", 2))
 
     @output
     @render.ui
     def west_bracket_round2():
-        matchups = get_second_round_matchups(input, "West")
-        return create_round_ui(input, "West", 2, matchups)
+        return create_round_ui(input, "West", 2, get_matchups_for_round(input, "West", 2))
 
     @output
     @render.ui
     def south_bracket_round2():
-        matchups = get_second_round_matchups(input, "South")
-        return create_round_ui(input, "South", 2, matchups)
+        return create_round_ui(input, "South", 2, get_matchups_for_round(input, "South", 2))
 
     @output
     @render.ui
     def midwest_bracket_round2():
-        matchups = get_second_round_matchups(input, "Midwest")
-        return create_round_ui(input, "Midwest", 2, matchups)
+        return create_round_ui(input, "Midwest", 2, get_matchups_for_round(input, "Midwest", 2))
 
     # Third Round UI Outputs
     @output
     @render.ui
     def east_bracket_round3():
-        matchups = get_round_matchups(input, "East", 3)
-        return create_round_ui(input, "East", 3, matchups)
-    
+        return create_round_ui(input, "East", 3, get_matchups_for_round(input, "East", 3))
+
     @output
     @render.ui
     def west_bracket_round3():
-        matchups = get_round_matchups(input, "West", 3)
-        return create_round_ui(input, "West", 3, matchups)
-    
+        return create_round_ui(input, "West", 3, get_matchups_for_round(input, "West", 3))
+
     @output
     @render.ui
     def south_bracket_round3():
-        matchups = get_round_matchups(input, "South", 3)
-        return create_round_ui(input, "South", 3, matchups)
-    
+        return create_round_ui(input, "South", 3, get_matchups_for_round(input, "South", 3))
+
     @output
     @render.ui
     def midwest_bracket_round3():
-        matchups = get_round_matchups(input, "Midwest", 3)
-        return create_round_ui(input, "Midwest", 3, matchups)
+        return create_round_ui(input, "Midwest", 3, get_matchups_for_round(input, "Midwest", 3))
 
     # Fourth Round UI Outputs
     @output
     @render.ui
     def east_bracket_round4():
-        matchups = get_round_matchups(input, "East", 4)
-        return create_round_ui(input, "East", 4, matchups)
-    
+        return create_round_ui(input, "East", 4, get_matchups_for_round(input, "East", 4))
+
     @output
     @render.ui
     def west_bracket_round4():
-        matchups = get_round_matchups(input, "West", 4)
-        return create_round_ui(input, "West", 4, matchups)
-    
+        return create_round_ui(input, "West", 4, get_matchups_for_round(input, "West", 4))
+
     @output
     @render.ui
     def south_bracket_round4():
-        matchups = get_round_matchups(input, "South", 4)
-        return create_round_ui(input, "South", 4, matchups)
-    
+        return create_round_ui(input, "South", 4, get_matchups_for_round(input, "South", 4))
+
     @output
     @render.ui
     def midwest_bracket_round4():
-        matchups = get_round_matchups(input, "Midwest", 4)
-        return create_round_ui(input, "Midwest", 4, matchups)
+        return create_round_ui(input, "Midwest", 4, get_matchups_for_round(input, "Midwest", 4))
 
     @output
     @render.ui
     def final_four_games():
-        matchups = get_final_four_matchups(input)
-        return create_round_ui(input, "final", 5, matchups)
+        return create_round_ui(input, "final", 5, get_final_four_matchups(input))
 
     @output
     @render.ui
     def championship_game():
-        # Get Final Four winners
-        winner1 = get_game_winner(input, "final_round5_game_0")
-        winner2 = get_game_winner(input, "final_round5_game_1")
-        
-        winner1_details = next((team for region_teams in teams.values() 
-                            for team in region_teams if team["Team"] == winner1), None) if winner1 else None
-        winner2_details = next((team for region_teams in teams.values() 
-                            for team in region_teams if team["Team"] == winner2), None) if winner2 else None
-        
-        matchups = [(winner1_details, winner2_details)]
-        return create_round_ui(input, "final", 6, matchups)
+        return create_round_ui(input, "final", 6, get_championship_matchup(input))
 
     # Bracket Assessment Output
     @output
