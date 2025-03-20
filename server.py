@@ -488,8 +488,17 @@ def analyze_bracket(input) -> Dict:
                     
                 # Find team details for each pick
                 for team_name in team_list:
-                    team_details = next((team for region_teams in teams.values() 
-                                      for team in region_teams if team["Team"] == team_name), None)
+                    team_details = None
+                    team_region = None
+                    
+                    # Find team details including region
+                    for region, region_teams in teams.items():
+                        found_team = next((team for team in region_teams if team["Team"] == team_name), None)
+                        if found_team:
+                            team_details = found_team
+                            team_region = region
+                            break
+                            
                     if team_details:
                         seed = team_details["Seed"]
                         # Check if this is an upset according to the analysis
@@ -506,6 +515,7 @@ def analyze_bracket(input) -> Dict:
                                 'round': round_name,
                                 'team': team_name,
                                 'seed': seed,
+                                'region': team_region,
                                 'advantage': upset_value
                             })
         
@@ -525,12 +535,50 @@ def analyze_bracket(input) -> Dict:
                     # Get top 3 recommended champions
                     top_champions = champion_df[champion_df['freq_diff'] > 0].sort_values('freq_diff', ascending=False).head(3)
                     if not top_champions.empty:
-                        champion_assessment['recommendation'] = top_champions[['team', 'seed', 'freq_diff']].to_dict('records')
+                        # Add region information to recommendations
+                        champion_recommendations = []
+                        for _, champ in top_champions.iterrows():
+                            champ_name = champ['team']
+                            champ_region = None
+                            
+                            # Find region
+                            for region, region_teams in teams.items():
+                                if any(team["Team"] == champ_name for team in region_teams):
+                                    champ_region = region
+                                    break
+                                    
+                            champion_recommendations.append({
+                                'team': champ_name,
+                                'seed': champ['seed'],
+                                'region': champ_region,
+                                'freq_diff': champ['freq_diff']
+                            })
+                            
+                        champion_assessment['recommendation'] = champion_recommendations
             else:
                 # Champion not found in analysis, recommend top 3
                 top_champions = champion_df[champion_df['freq_diff'] > 0].sort_values('freq_diff', ascending=False).head(3)
                 if not top_champions.empty:
-                    champion_assessment['recommendation'] = top_champions[['team', 'seed', 'freq_diff']].to_dict('records')
+                    # Add region information to recommendations
+                    champion_recommendations = []
+                    for _, champ in top_champions.iterrows():
+                        champ_name = champ['team']
+                        champ_region = None
+                        
+                        # Find region
+                        for region, region_teams in teams.items():
+                            if any(team["Team"] == champ_name for team in region_teams):
+                                champ_region = region
+                                break
+                                
+                        champion_recommendations.append({
+                            'team': champ_name,
+                            'seed': champ['seed'],
+                            'region': champ_region,
+                            'freq_diff': champ['freq_diff']
+                        })
+                        
+                    champion_assessment['recommendation'] = champion_recommendations
         
         # Compare underdog counts to optimal values
         upset_assessment = {}
@@ -560,10 +608,18 @@ def analyze_bracket(input) -> Dict:
                 
                 # Check if this valuable upset is missing from user's selections
                 if round_name in selections and team_name not in selections[round_name]:
+                    # Find team region
+                    team_region = None
+                    for region, region_teams in teams.items():
+                        if any(team["Team"] == team_name for team in region_teams):
+                            team_region = region
+                            break
+                            
                     missing_valuable_upsets.append({
                         'round': round_name,
                         'team': team_name,
                         'seed': upset['seed'],
+                        'region': team_region,
                         'advantage': upset['freq_diff']
                     })
         
@@ -661,7 +717,16 @@ def format_bracket_assessment(assessment: Dict, input) -> str:
                                  for team in region_teams if team["Team"] == champion_name), None)
             if champion_details:
                 champion_seed = champion_details['Seed']
-                report.append(f"Your champion: **({champion_seed}) {champion_name}**")
+                
+                # Find champion region
+                champion_region = None
+                for region, region_teams in teams.items():
+                    if any(team["Team"] == champion_name for team in region_teams):
+                        champion_region = region
+                        break
+                        
+                region_info = f" [{champion_region}]" if champion_region else ""
+                report.append(f"Your champion: **({champion_seed}) {champion_name}{region_info}**")
                 
                 if assessment['champion_assessment']['value'] > 0:
                     report.append(f"✅ Good choice! This champion appears more frequently in winning brackets.")
@@ -673,7 +738,8 @@ def format_bracket_assessment(assessment: Dict, input) -> str:
                     if assessment['champion_assessment']['recommendation']:
                         report.append("Suggested champion alternatives:")
                         for idx, champ in enumerate(assessment['champion_assessment']['recommendation']):
-                            report.append(f"- ({champ['seed']}) {champ['team']}")
+                            region_info = f" [{champ.get('region', '')}]" if 'region' in champ else ""
+                            report.append(f"- ({champ['seed']}) {champ['team']}{region_info}")
             else:
                 report.append(f"Your champion: **{champion_name}**")
         else:
@@ -684,14 +750,18 @@ def format_bracket_assessment(assessment: Dict, input) -> str:
         if assessment['specific_upsets']:
             report.append(f"✅ Your bracket includes these valuable upset picks that appear more often in winning brackets in {pool_size}-entry pools:")
             for upset in sorted(assessment['specific_upsets'], key=lambda x: x['advantage'], reverse=True):
-                report.append(f"- **{upset['round']}**: ({upset['seed']}) {upset['team']}")
+                # Include region information
+                region_info = f" [{upset.get('region', '')}]" if 'region' in upset else ""
+                report.append(f"- **{upset['round']}**: ({upset['seed']}) {upset['team']}{region_info}")
         else:
             report.append("⚠️ Your bracket doesn't include any of the specific upsets that frequently appear in winning brackets.")
         
         if assessment['missing_valuable_upsets']:
             report.append(f"### Consider adding these valuable upsets for {pool_size}-entry pools:")
             for upset in assessment['missing_valuable_upsets'][:5]:  # Top 5 recommendations
-                report.append(f"- **{upset['round']}**: ({upset['seed']}) {upset['team']}")
+                # Include region information
+                region_info = f" [{upset.get('region', '')}]" if 'region' in upset else ""
+                report.append(f"- **{upset['round']}**: ({upset['seed']}) {upset['team']}{region_info}")
                 
         # General advice
         report.append("## General Advice")
