@@ -1,5 +1,5 @@
 # Comparative Analysis Summary Report
-## Date Generated: 2025-03-18 02:29
+## Date Generated: 2025-03-19 23:28
 ## Number of Pools Analyzed: 200
 ## Total Brackets Analyzed: 20000
 ### Winners: 200
@@ -9,46 +9,46 @@
 
 ### Significant Differences in Upsets
 The following rounds showed statistically significant differences in upset patterns between winning and non-winning brackets:
-- **First Round**: Winners avg 8.54 upsets vs. non-winners 9.61 upsets (p=0.0000, Small effect)
-- **Second Round**: Winners avg 6.67 upsets vs. non-winners 7.40 upsets (p=0.0001, Small effect)
-- **Sweet 16**: Winners avg 3.48 upsets vs. non-winners 4.15 upsets (p=0.0000, Small effect)
-- **Elite 8**: Winners avg 2.37 upsets vs. non-winners 2.59 upsets (p=0.0030, Small effect)
-- **Final Four**: Winners avg 0.94 upsets vs. non-winners 1.12 upsets (p=0.0007, Small effect)
-- **Championship**: Winners avg 0.38 upsets vs. non-winners 0.48 upsets (p=0.0029, Small effect)
-- **Total**: Winners avg 22.38 upsets vs. non-winners 25.36 upsets (p=0.0000, Small effect)
+- **Second Round**: Winners avg 6.98 upsets vs. non-winners 7.48 upsets (p=0.0070, Small effect)
+- **Sweet 16**: Winners avg 3.67 upsets vs. non-winners 4.16 upsets (p=0.0001, Small effect)
+- **Elite 8**: Winners avg 2.39 upsets vs. non-winners 2.61 upsets (p=0.0033, Small effect)
+- **Final Four**: Winners avg 1.01 upsets vs. non-winners 1.13 upsets (p=0.0236, Negligible effect)
+- **Championship**: Winners avg 0.40 upsets vs. non-winners 0.49 upsets (p=0.0107, Negligible effect)
+- **Total**: Winners avg 23.79 upsets vs. non-winners 25.58 upsets (p=0.0017, Small effect)
 
 ### Significant Differences in Log Probabilities
 The following rounds showed statistically significant differences in log probabilities between winning and non-winning brackets:
-- **First Round**: Winners avg 17.28 vs. non-winners 18.52 (p=0.0000, Small effect)
-- **Second Round**: Winners avg 9.30 vs. non-winners 9.72 (p=0.0012, Small effect)
-- **Sweet 16**: Winners avg 4.40 vs. non-winners 4.82 (p=0.0000, Small effect)
-- **Overall**: Winners avg 35.34 vs. non-winners 37.50 (p=0.0000, Small effect)
+- **First Round**: Winners avg 17.41 vs. non-winners 18.56 (p=0.0000, Small effect)
+- **Second Round**: Winners avg 9.26 vs. non-winners 9.77 (p=0.0000, Small effect)
+- **Sweet 16**: Winners avg 4.59 vs. non-winners 4.83 (p=0.0060, Small effect)
+- **Elite 8**: Winners avg 2.39 vs. non-winners 2.53 (p=0.0127, Negligible effect)
+- **Overall**: Winners avg 35.49 vs. non-winners 37.61 (p=0.0000, Small effect)
 
 ### Optimal Upset Strategy
 Based on the most successful brackets, the following upset strategy is recommended:
-- **First Round**: 10 upsets (mode: 10, mean: 8.5)
-- **Second Round**: 7 upsets (mode: 7, mean: 6.7)
-- **Sweet 16**: 2 upsets (mode: 4, mean: 3.5)
-- **Elite 8**: 1 upsets (mode: 3, mean: 2.4)
-- **Total Across All Rounds**: 18 upsets (mode: 18, mean: 22.4)
+- **First Round**: 9 upsets (mode: 9, mean: 9.3)
+- **Second Round**: 5 upsets (mode: 7, mean: 7.0)
+- **Sweet 16**: 3 upsets (mode: 3, mean: 3.7)
+- **Elite 8**: 2 upsets (mode: 2, mean: 2.4)
+- **Total Across All Rounds**: 20 upsets (mode: 20, mean: 23.8)
 
 ### Top Champion Picks
 The following champion picks were most advantageous in winning brackets:
-- **Houston (Seed 1)**: Winners picked 29.5% vs. non-winners 21.1% (advantage: 8.4%)
-- **Duke (Seed 1)**: Winners picked 14.5% vs. non-winners 12.2% (advantage: 2.3%)
-- **Auburn (Seed 1)**: Winners picked 6.0% vs. non-winners 4.1% (advantage: 1.9%)
-- **Alabama St (Seed 16)**: Winners picked 3.0% vs. non-winners 1.6% (advantage: 1.4%)
-- **UC San Diego (Seed 12)**: Winners picked 1.5% vs. non-winners 0.3% (advantage: 1.2%)
+- **Houston (Seed 1)**: Winners picked 26.0% vs. non-winners 21.1% (advantage: 4.9%)
+- **Duke (Seed 1)**: Winners picked 16.0% vs. non-winners 12.5% (advantage: 3.5%)
+- **St John's (Seed 2)**: Winners picked 13.5% vs. non-winners 10.9% (advantage: 2.6%)
+- **Michigan St (Seed 2)**: Winners picked 7.0% vs. non-winners 4.8% (advantage: 2.2%)
+- **Alabama (Seed 2)**: Winners picked 5.0% vs. non-winners 3.4% (advantage: 1.6%)
 
 ### Most Valuable Specific Upsets
 The following specific upsets were most advantageous in winning brackets:
-- **Second Round**: #5 Michigan - Winners picked 44.5% vs. non-winners 37.8% (advantage: 6.7%)
-- **Elite 8**: #2 Michigan St - Winners picked 31.0% vs. non-winners 24.9% (advantage: 6.1%)
-- **Second Round**: #5 Memphis - Winners picked 33.0% vs. non-winners 28.0% (advantage: 5.0%)
-- **Second Round**: #11 San Diego St - Winners picked 17.0% vs. non-winners 13.6% (advantage: 3.4%)
-- **Sweet 16**: #5 Michigan - Winners picked 21.0% vs. non-winners 17.7% (advantage: 3.3%)
-- **Sweet 16**: #4 Texas A&M - Winners picked 17.0% vs. non-winners 13.8% (advantage: 3.2%)
-- **Second Round**: #6 Missouri - Winners picked 17.5% vs. non-winners 14.3% (advantage: 3.2%)
-- **Sweet 16**: #10 Utah State - Winners picked 8.5% vs. non-winners 5.5% (advantage: 3.0%)
-- **Elite 8**: #2 St John's - Winners picked 33.5% vs. non-winners 30.5% (advantage: 3.0%)
-- **First Round**: #9 Baylor - Winners picked 48.0% vs. non-winners 45.1% (advantage: 2.9%)
+- **Elite 8**: #2 St John's - Winners picked 44.0% vs. non-winners 31.0% (advantage: 13.0%)
+- **Final Four**: #2 St John's - Winners picked 28.0% vs. non-winners 18.4% (advantage: 9.6%)
+- **Sweet 16**: #5 Michigan - Winners picked 26.0% vs. non-winners 17.9% (advantage: 8.1%)
+- **Second Round**: #5 Michigan - Winners picked 44.5% vs. non-winners 38.1% (advantage: 6.4%)
+- **First Round**: #9 Oklahoma - Winners picked 41.5% vs. non-winners 36.3% (advantage: 5.2%)
+- **Second Round**: #6 Illinois - Winners picked 32.0% vs. non-winners 27.4% (advantage: 4.6%)
+- **Second Round**: #16 Alabama St - Winners picked 26.5% vs. non-winners 22.0% (advantage: 4.5%)
+- **First Round**: #16 Alabama St - Winners picked 45.5% vs. non-winners 41.1% (advantage: 4.4%)
+- **First Round**: #12 Colorado St - Winners picked 47.0% vs. non-winners 42.8% (advantage: 4.2%)
+- **First Round**: #11 North Carolina - Winners picked 47.5% vs. non-winners 43.3% (advantage: 4.2%)
