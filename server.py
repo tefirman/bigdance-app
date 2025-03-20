@@ -700,11 +700,6 @@ def format_bracket_assessment(assessment: Dict, input) -> str:
             f"## Overall Rating: {assessment['bracket_rating']['rating']} ({assessment['bracket_rating']['score']}/{assessment['bracket_rating']['max_score']} points)"
         ]
         
-        # At the end of analyze_bracket
-        logger.debug(f"Assessment keys: {assessment.keys()}")
-        if 'upset_assessment' in assessment:
-            logger.debug(f"Upset assessment keys: {assessment['upset_assessment'].keys()}")
-
         # Upset assessment
         report.append("## Upset Analysis")
         expected_rounds = ["First Round", "Second Round", "Sweet 16", "Elite 8", "Final Four", "Championship", "Total"]
@@ -788,20 +783,22 @@ def format_bracket_assessment(assessment: Dict, input) -> str:
         # Add round-specific advice based on analysis
         advice_points = []
         
-        if assessment['upset_assessment']['First Round']['status'] == 'too_many':
-            advice_points.append("- **First Round**: You've selected too many upsets. Historically, winning brackets have fewer first-round upsets than you might expect.")
-        elif assessment['upset_assessment']['First Round']['status'] == 'too_few':
-            advice_points.append("- **First Round**: Consider adding a few more first-round upsets, particularly in the 10-12 seed range.")
+        if "First Round" in assessment['upset_assessment']:
+            if assessment['upset_assessment']['First Round']['status'] == 'too_many':
+                advice_points.append("- **First Round**: You've selected too many upsets. Historically, winning brackets have fewer first-round upsets than you might expect.")
+            elif assessment['upset_assessment']['First Round']['status'] == 'too_few':
+                advice_points.append("- **First Round**: Consider adding a few more first-round upsets, particularly in the 10-12 seed range.")
+        if "Second Round" in assessment['upset_assessment']:
+            if assessment['upset_assessment']['Second Round']['status'] == 'too_many':
+                advice_points.append("- **Second Round**: You may have too many second-round upsets. Consider keeping more 1-4 seeds advancing to the Sweet 16.")
+        
+        if "Sweet 16" in assessment['upset_assessment'] and "Elite 8" in assessment['upset_assessment']:
+            # Add Sweet 16/Elite 8 advice based on pattern
+            sweet16_count = assessment['upset_assessment']['Sweet 16']['count']
+            elite8_count = assessment['upset_assessment']['Elite 8']['count']
             
-        if assessment['upset_assessment']['Second Round']['status'] == 'too_many':
-            advice_points.append("- **Second Round**: You may have too many second-round upsets. Consider keeping more 1-4 seeds advancing to the Sweet 16.")
-        
-        # Add Sweet 16/Elite 8 advice based on pattern
-        sweet16_count = assessment['upset_assessment']['Sweet 16']['count']
-        elite8_count = assessment['upset_assessment']['Elite 8']['count']
-        
-        if sweet16_count > 4 and elite8_count > 2:
-            advice_points.append("- **Later Rounds**: Your bracket has many upsets in the later rounds. While exciting, this reduces your likelihood of success.")
+            if sweet16_count > 4 and elite8_count > 2:
+                advice_points.append("- **Later Rounds**: Your bracket has many upsets in the later rounds. While exciting, this reduces your likelihood of success.")
         
         # Final Four advice
         final_four_picks = assessment['selections'].get('Final Four', [])
@@ -827,11 +824,8 @@ def format_bracket_assessment(assessment: Dict, input) -> str:
         # Join with single newlines for proper Markdown rendering
         return "\n".join(report)
     except Exception as e:
-        if str(e) == "First Round":
-            return "Looks like you haven't made any actual picks, keep going..."
-        else:
-            logger.error(f"Error formatting bracket assessment: {str(e)}")
-            return f"Error formatting bracket assessment: {str(e)}"
+        logger.error(f"Error formatting bracket assessment: {str(e)}")
+        return f"Error formatting bracket assessment: {str(e)}"
 
 def server(input, output, session):
     """Main server function containing all callbacks and reactive logic"""
