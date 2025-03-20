@@ -259,6 +259,25 @@ custom_css = """
 #assessment-region {
     padding: 30px;
 }
+
+/* Pool size selector styling */
+.pool-size-selector {
+    text-align: center;
+    margin-bottom: 1rem;
+    padding: 0.5rem;
+    background-color: #f8f9fa;
+    border-radius: 5px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.pool-size-selector label {
+    font-weight: 500;
+    margin-right: 1rem;
+}
+
+.pool-size-selector select {
+    min-width: 100px;
+}
 """
 
 # JavaScript for region selector tabs
@@ -310,6 +329,23 @@ app_ui = ui.page_fluid(
     ui.div(
         ui.h2("March Madness Bracket Creator", class_="text-center mb-4"),
         class_="container-fluid"
+    ),
+    
+    # Pool size selector
+    ui.div(
+        ui.div(
+            ui.tags.label("Pool Size: ", **{"for": "pool_size"}),
+            ui.input_select(
+                "pool_size",
+                "",  # No label, as we're using the label tag above
+                choices={
+                    "10": "10 Entries",
+                    "100": "100 Entries"
+                },
+                selected="100"
+            ),
+            class_="pool-size-selector"
+        )
     ),
     
     # Main layout - removed sidebar, made it full width

@@ -9,7 +9,7 @@
 @Desc    :   Server logic for March Madness bracket app
 '''
 
-from shiny import render, ui
+from shiny import render, ui, reactive
 from shiny.types import SilentException
 import logging
 from typing import Dict, List, Optional, Tuple
@@ -21,102 +21,118 @@ from data import teams
 
 logger = logging.getLogger(__name__)
 
-# Load comparative analysis data
-try:
-    analysis_dir = Path('analysis_data/men_100entries')
+# Analysis data containers - will be populated reactively based on pool size
+optimal_upset_df = None
+champion_df = None
+specific_upsets_df = None
+analysis_summary = None
+upset_stats_df = None
+log_prob_df = None
+optimal_upset_dict = None
+
+# Default optimal values if files not found
+default_optimal_upset_dict = {
+    "First Round": {"optimal": 10, "range": (8, 11)},
+    "Second Round": {"optimal": 7, "range": (6, 8)},
+    "Sweet 16": {"optimal": 2, "range": (2, 4)},
+    "Elite 8": {"optimal": 1, "range": (1, 3)},
+    "Final Four": {"optimal": 1, "range": (0, 1)},
+    "Championship": {"optimal": 0, "range": (0, 1)},
+    "Total": {"optimal": 18, "range": (18, 25)}
+}
+
+def load_analysis_data(pool_size: str) -> Dict:
+    """Load analysis data based on pool size"""
+    global optimal_upset_df, champion_df, specific_upsets_df, analysis_summary
+    global upset_stats_df, log_prob_df, optimal_upset_dict
     
-    # Check if analysis data directory exists
-    if not analysis_dir.exists():
-        analysis_dir.mkdir(parents=True, exist_ok=True)
-        logger.warning("Analysis data directory created. Please add analysis files.")
-    
-    # Load optimal upset strategy
-    optimal_upset_path = analysis_dir / 'optimal_upset_strategy.csv'
-    if optimal_upset_path.exists():
-        optimal_upset_df = pd.read_csv(optimal_upset_path)
-    else:
-        logger.warning("Optimal upset strategy file not found")
-        optimal_upset_df = None
-    
-    # Load champion pick comparison data
-    champion_path = analysis_dir / 'champion_pick_comparison.csv'
-    if champion_path.exists():
-        champion_df = pd.read_csv(champion_path)
-    else:
-        logger.warning("Champion pick comparison file not found")
-        champion_df = None
-    
-    # Load specific upsets data
-    specific_upsets_path = analysis_dir / 'specific_upset_comparison.csv'
-    if specific_upsets_path.exists():
-        specific_upsets_df = pd.read_csv(specific_upsets_path)
-    else:
-        logger.warning("Specific upsets file not found")
-        specific_upsets_df = None
-    
-    # Load historical data summary
-    summary_path = analysis_dir / 'comparative_analysis_summary.md'
-    if summary_path.exists():
-        with open(summary_path, 'r') as f:
-            analysis_summary = f.read()
-    else:
-        logger.warning("Comparative analysis summary file not found")
-        analysis_summary = None
+    try:
+        # Determine the directory path based on pool size
+        analysis_dir = Path(f'analysis_data/men_{pool_size}entries')
         
-    # Load upset comparison statistics
-    upset_stats_path = analysis_dir / 'upset_comparison_statistics.csv'
-    if upset_stats_path.exists():
-        upset_stats_df = pd.read_csv(upset_stats_path)
-    else:
-        logger.warning("Upset comparison statistics file not found")
-        upset_stats_df = None
-    
-    # Load log probability comparison statistics
-    log_prob_path = analysis_dir / 'log_probability_comparison_statistics.csv'
-    if log_prob_path.exists():
-        log_prob_df = pd.read_csv(log_prob_path)
-    else:
-        logger.warning("Log probability comparison statistics file not found")
-        log_prob_df = None
-    
-    # Default optimal values if files not found
-    if optimal_upset_df is None:
-        optimal_upset_dict = {
-            "First Round": {"optimal": 10, "range": (8, 11)},
-            "Second Round": {"optimal": 7, "range": (6, 8)},
-            "Sweet 16": {"optimal": 2, "range": (2, 4)},
-            "Elite 8": {"optimal": 1, "range": (1, 3)},
-            "Final Four": {"optimal": 1, "range": (0, 1)},
-            "Championship": {"optimal": 0, "range": (0, 1)},
-            "Total": {"optimal": 18, "range": (18, 25)}
-        }
-    else:
-        optimal_upset_dict = {row['round']: {"optimal": int(row['max_advantage_upsets']), 
-                                          "range": (max(0, int(row['max_advantage_upsets'] - 2)), 
-                                                   int(row['max_advantage_upsets'] + 2))}
-                             for _, row in optimal_upset_df.iterrows() if row['round'] != 'Total Upsets'}
-        # Add total upsets
-        total_row = optimal_upset_df[optimal_upset_df['round'] == 'Total Upsets']
-        if not total_row.empty:
-            optimal_upset_dict["Total"] = {"optimal": int(total_row['max_advantage_upsets'].iloc[0]),
-                                          "range": (int(total_row['max_advantage_upsets'].iloc[0] - 4),
-                                                    int(total_row['max_advantage_upsets'].iloc[0] + 4))}
+        # Check if analysis data directory exists
+        if not analysis_dir.exists():
+            analysis_dir.mkdir(parents=True, exist_ok=True)
+            logger.warning(f"Analysis data directory for {pool_size} entries created. Please add analysis files.")
+        
+        # Load optimal upset strategy
+        optimal_upset_path = analysis_dir / 'optimal_upset_strategy.csv'
+        if optimal_upset_path.exists():
+            optimal_upset_df = pd.read_csv(optimal_upset_path)
         else:
-            optimal_upset_dict["Total"] = {"optimal": 22, "range": (18, 26)}
+            logger.warning(f"Optimal upset strategy file not found for {pool_size} entries")
+            optimal_upset_df = None
+        
+        # Load champion pick comparison data
+        champion_path = analysis_dir / 'champion_pick_comparison.csv'
+        if champion_path.exists():
+            champion_df = pd.read_csv(champion_path)
+        else:
+            logger.warning(f"Champion pick comparison file not found for {pool_size} entries")
+            champion_df = None
+        
+        # Load specific upsets data
+        specific_upsets_path = analysis_dir / 'specific_upset_comparison.csv'
+        if specific_upsets_path.exists():
+            specific_upsets_df = pd.read_csv(specific_upsets_path)
+        else:
+            logger.warning(f"Specific upsets file not found for {pool_size} entries")
+            specific_upsets_df = None
+        
+        # Load historical data summary
+        summary_path = analysis_dir / 'comparative_analysis_summary.md'
+        if summary_path.exists():
+            with open(summary_path, 'r') as f:
+                analysis_summary = f.read()
+        else:
+            logger.warning(f"Comparative analysis summary file not found for {pool_size} entries")
+            analysis_summary = None
             
-    analysis_data_loaded = True
-except Exception as e:
-    logger.error(f"Error loading analysis data: {str(e)}")
-    analysis_data_loaded = False
-    optimal_upset_dict = {
-        "First Round": {"optimal": 10, "range": (8, 11)},
-        "Second Round": {"optimal": 7, "range": (6, 8)},
-        "Sweet 16": {"optimal": 3, "range": (2, 4)},
-        "Elite 8": {"optimal": 2, "range": (1, 3)},
-        "Final Four": {"optimal": 1, "range": (0, 1)},
-        "Championship": {"optimal": 0, "range": (0, 1)},
-        "Total": {"optimal": 22, "range": (18, 26)}
-    }
+        # Load upset comparison statistics
+        upset_stats_path = analysis_dir / 'upset_comparison_statistics.csv'
+        if upset_stats_path.exists():
+            upset_stats_df = pd.read_csv(upset_stats_path)
+        else:
+            logger.warning(f"Upset comparison statistics file not found for {pool_size} entries")
+            upset_stats_df = None
+        
+        # Load log probability comparison statistics
+        log_prob_path = analysis_dir / 'log_probability_comparison_statistics.csv'
+        if log_prob_path.exists():
+            log_prob_df = pd.read_csv(log_prob_path)
+        else:
+            logger.warning(f"Log probability comparison statistics file not found for {pool_size} entries")
+            log_prob_df = None
+        
+        # Create optimal upset dictionary
+        if optimal_upset_df is not None:
+            optimal_upset_dict = {row['round']: {"optimal": int(row['max_advantage_upsets']), 
+                                                "range": (max(0, int(row['max_advantage_upsets'] - 2)), 
+                                                         int(row['max_advantage_upsets'] + 2))}
+                                 for _, row in optimal_upset_df.iterrows() if row['round'] != 'Total Upsets'}
+            # Add total upsets
+            total_row = optimal_upset_df[optimal_upset_df['round'] == 'Total Upsets']
+            if not total_row.empty:
+                optimal_upset_dict["Total"] = {"optimal": int(total_row['max_advantage_upsets'].iloc[0]),
+                                              "range": (int(total_row['max_advantage_upsets'].iloc[0] - 4),
+                                                        int(total_row['max_advantage_upsets'].iloc[0] + 4))}
+            else:
+                optimal_upset_dict["Total"] = {"optimal": 22, "range": (18, 26)}
+        else:
+            optimal_upset_dict = default_optimal_upset_dict
+
+        return {
+            'success': True,
+            'message': f"Loaded analysis data for {pool_size} entries"
+        }
+    except Exception as e:
+        logger.error(f"Error loading analysis data for {pool_size} entries: {str(e)}")
+        optimal_upset_dict = default_optimal_upset_dict
+        return {
+            'success': False,
+            'message': f"Error loading analysis data: {str(e)}",
+            'error': str(e)
+        }
 
 def get_game_winner(input, game_id: str) -> Optional[str]:
     """Helper function to safely get game winner"""
@@ -606,15 +622,18 @@ def analyze_bracket(input) -> Dict:
             'bracket_rating': {'rating': 'Error', 'score': 0, 'max_score': 75, 'percentage': 0}
         }
 
-def format_bracket_assessment(assessment: Dict) -> str:
+def format_bracket_assessment(assessment: Dict, input) -> str:
     """Format bracket assessment into a readable text report"""
     try:
         if 'error' in assessment:
             return f"Error analyzing bracket: {assessment['error']}"
         
+        # Get pool size for context
+        pool_size = input.pool_size()
+        
         # General format
         report = [
-            f"# Bracket Assessment",
+            f"# Bracket Assessment for {pool_size}-Entry Pool",
             f"## Overall Rating: {assessment['bracket_rating']['rating']} ({assessment['bracket_rating']['score']}/{assessment['bracket_rating']['max_score']} points)"
         ]
         
@@ -663,14 +682,14 @@ def format_bracket_assessment(assessment: Dict) -> str:
         # Valuable specific upsets
         report.append("## Valuable Upsets")
         if assessment['specific_upsets']:
-            report.append("✅ Your bracket includes these valuable upset picks that appear more often in winning brackets:")
+            report.append(f"✅ Your bracket includes these valuable upset picks that appear more often in winning brackets in {pool_size}-entry pools:")
             for upset in sorted(assessment['specific_upsets'], key=lambda x: x['advantage'], reverse=True):
                 report.append(f"- **{upset['round']}**: ({upset['seed']}) {upset['team']}")
         else:
             report.append("⚠️ Your bracket doesn't include any of the specific upsets that frequently appear in winning brackets.")
         
         if assessment['missing_valuable_upsets']:
-            report.append("### Consider adding these valuable upsets:")
+            report.append(f"### Consider adding these valuable upsets for {pool_size}-entry pools:")
             for upset in assessment['missing_valuable_upsets'][:5]:  # Top 5 recommendations
                 report.append(f"- **{upset['round']}**: ({upset['seed']}) {upset['team']}")
                 
@@ -706,6 +725,13 @@ def format_bracket_assessment(assessment: Dict) -> str:
         if final_four_seeds and max(final_four_seeds) > 8:
             advice_points.append("- **Final Four**: Your Final Four includes very high seeds. Historically, at least 2-3 of the Final Four teams are 1-4 seeds.")
         
+        # Add pool size specific advice
+        pool_size_int = int(input.pool_size())
+        if pool_size_int <= 10:
+            advice_points.append("- **Small Pool Strategy**: In small pools (10 entries or fewer), consider selecting more high seeds since you need fewer surprises to differentiate your bracket.")
+        elif pool_size_int >= 500:
+            advice_points.append("- **Large Pool Strategy**: In very large pools (500+ entries), you may need more strategic upsets and a less common champion pick to stand out.")
+        
         # Add all advice points
         report.extend(advice_points)
             
@@ -717,6 +743,20 @@ def format_bracket_assessment(assessment: Dict) -> str:
 
 def server(input, output, session):
     """Main server function containing all callbacks and reactive logic"""
+    
+    # Add reactive effect to update analysis data when pool size changes
+    @reactive.Effect
+    def _update_analysis_data():
+        # Load analysis data based on selected pool size
+        pool_size = input.pool_size()
+        logger.info(f"Updating analysis data for {pool_size} entries pool")
+        load_analysis_data(pool_size)
+    
+    # Initialize with default pool size on startup
+    @reactive.Effect(priority=10)  # Higher priority to run first
+    def _init_data():
+        # Initial load with default pool size
+        load_analysis_data("100")  # Default size
     
     # First Round UI Outputs
     @output
@@ -904,11 +944,14 @@ def server(input, output, session):
         except:
             pass
         
-        # Also use trigger from tab switch
+        # Also use trigger from tab switch or pool size change
         try:
             input.__forceAssessmentUpdate__
         except:
             pass
+        
+        # React to pool size changes
+        pool_size = input.pool_size()
             
         # Check if we have any selections
         if not bracket_selections:
@@ -920,7 +963,7 @@ def server(input, output, session):
         # Process the assessment as before
         try:
             assessment = analyze_bracket(input)
-            assessment_text = format_bracket_assessment(assessment)
+            assessment_text = format_bracket_assessment(assessment, input)  # Pass input to get pool size
             html_content = markdown(assessment_text)
             return ui.HTML(html_content)
         except Exception as e:
