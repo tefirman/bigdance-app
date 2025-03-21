@@ -26,6 +26,7 @@ logs_dir.mkdir(exist_ok=True)
 
 # Create analysis_data directory if it doesn't exist
 analysis_dir = Path('analysis_data/men_100entries')
+# analysis_dir = Path('analysis_data/women_100entries')
 if not analysis_dir.exists():
     analysis_dir.mkdir(parents=True, exist_ok=True)
     # Copy README to analysis_data directory if it exists

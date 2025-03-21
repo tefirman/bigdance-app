@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 from pathlib import Path
 from markdown import markdown
-from bigdance.cbb_brackets import Bracket, Team
+from bigdance.cbb_brackets import Bracket, Team, Game
 
 from data import teams
 
@@ -50,6 +50,7 @@ def load_analysis_data(pool_size: str) -> Dict:
     try:
         # Determine the directory path based on pool size
         analysis_dir = Path(f'analysis_data/men_{pool_size}entries')
+        # analysis_dir = Path(f'analysis_data/women_{pool_size}entries')
         
         # Check if analysis data directory exists
         if not analysis_dir.exists():
@@ -423,6 +424,14 @@ def create_bracket_from_picks(input) -> Bracket:
                 winner = next((t for t in all_teams if t.name == winner_name), None)
                 if winner:
                     bracket.results["First Round"].append(winner)
+                    
+                    # Additionally, set the winner in the corresponding game object
+                    # First, find the matching game in the bracket.games list
+                    for game in bracket.games:
+                        if (game.region.lower() == region and 
+                            (game.team1.name == winner_name or game.team2.name == winner_name)):
+                            game.winner = winner
+                            break
         
         # Second round (4 games)
         for i in range(4):
@@ -468,6 +477,39 @@ def create_bracket_from_picks(input) -> Bracket:
             bracket.results["Championship"].append(winner)
             bracket.results["Champion"] = winner
     
+    # Recreate the games structure for later rounds
+    # We need to do this because the original games list only contains first round games
+    current_round_teams = bracket.results["First Round"]
+    
+    # Create "games" for each subsequent round based on the results
+    # Second Round games
+    if len(current_round_teams) >= 2:
+        round_name = "Second Round"
+        for i in range(0, len(current_round_teams), 2):
+            if i + 1 < len(current_round_teams):
+                team1 = current_round_teams[i]
+                team2 = current_round_teams[i + 1]
+                # Find the winner of this matchup in the next round's results
+                winner = None
+                if round_name in bracket.results:
+                    for potential_winner in bracket.results[round_name]:
+                        if potential_winner.name == team1.name or potential_winner.name == team2.name:
+                            winner = potential_winner
+                            break
+                
+                # Create a Game object with the proper winner set
+                game = Game(
+                    team1=team1,
+                    team2=team2,
+                    round=2,
+                    region=team1.region if team1.region == team2.region else "Final Four",
+                    winner=winner
+                )
+                # We would add this to a games list if we needed to track it
+    
+    # We don't need to repeat this for all later rounds since the first round
+    # is sufficient for log probability calculations, but the pattern would be similar
+    
     return bracket
 
 
@@ -478,6 +520,9 @@ def analyze_bracket(input) -> Dict:
     try:
         # Create a Bracket object from user selections
         bracket = create_bracket_from_picks(input)
+        
+        # Calculate log probability of the bracket
+        log_probability = bracket.calculate_log_probability()
         
         # Extract simple selection dictionary for compatibility with other functions
         # (in case any of them still need access to the selections)
@@ -669,7 +714,9 @@ def analyze_bracket(input) -> Dict:
             'missing_valuable_upsets': missing_valuable_upsets,
             'champion_assessment': champion_assessment,
             'upset_assessment': upset_assessment,
-            'bracket_rating': bracket_rating
+            'bracket_rating': bracket_rating,
+            'log_probability': log_probability,
+            'log_probability_by_round': bracket.log_probability_by_round if hasattr(bracket, 'log_probability_by_round') else {}
         }
     
     except Exception as e:
@@ -682,7 +729,9 @@ def analyze_bracket(input) -> Dict:
             'missing_valuable_upsets': [],
             'champion_assessment': {},
             'upset_assessment': {},
-            'bracket_rating': {'rating': 'Error', 'score': 0, 'max_score': 75, 'percentage': 0}
+            'bracket_rating': {'rating': 'Error', 'score': 0, 'max_score': 75, 'percentage': 0},
+            'log_probability': float('inf'),
+            'log_probability_by_round': {}
         }
 
 def format_bracket_assessment(assessment: Dict, input) -> str:
@@ -699,6 +748,38 @@ def format_bracket_assessment(assessment: Dict, input) -> str:
             f"# Bracket Assessment for {pool_size}-Entry Pool",
             f"## Overall Rating: {assessment['bracket_rating']['rating']} ({assessment['bracket_rating']['score']}/{assessment['bracket_rating']['max_score']} points)"
         ]
+        
+        # Add log probability section
+        log_prob = assessment.get('log_probability', float('inf'))
+        log_prob_by_round = assessment.get('log_probability_by_round', {})
+        
+        report.append("## Bracket Probability")
+        
+        if log_prob != float('inf'):
+            # Format log probability (it's negative log probability, so lower is better)
+            report.append(f"**Total Log Probability**: {log_prob:.2f} (lower is more likely)")
+            
+            # Interpret the log probability
+            if log_prob < 40:
+                report.append("✅ Your bracket is very plausible based on team ratings.")
+            elif log_prob < 60:
+                report.append("✓ Your bracket has reasonable probability based on team ratings.")
+            elif log_prob < 80:
+                report.append("⚠️ Your bracket has some unlikely outcomes based on team ratings.")
+            else:
+                report.append("❗ Your bracket contains many unlikely outcomes based on team ratings.")
+            
+            # Add round-by-round log probabilities if available
+            if log_prob_by_round:
+                report.append("\n**Log Probability by Round:**")
+                for round_name, round_log_prob in sorted(log_prob_by_round.items(), 
+                                                        key=lambda x: ["First Round", "Second Round", "Sweet 16", 
+                                                                      "Elite 8", "Final Four", "Championship"].index(x[0]) 
+                                                                      if x[0] in ["First Round", "Second Round", "Sweet 16", 
+                                                                                 "Elite 8", "Final Four", "Championship"] else 99):
+                    report.append(f"- {round_name}: {round_log_prob:.2f}")
+        else:
+            report.append("⚠️ Unable to calculate bracket probability. This might be due to incomplete selections.")
         
         # Upset assessment
         report.append("## Upset Analysis")

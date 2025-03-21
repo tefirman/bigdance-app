@@ -32,6 +32,15 @@ else:
     first_round = extract_first_round_from_json(bracket_json)
 actual_bracket = convert_espn_to_bigdance(first_round)
 
+# if os.path.exists("first_round_matchups_women.json"):
+#     with open("first_round_matchups_women.json","r") as espn_data:
+#         first_round = json.loads(espn_data.read())
+# else:
+#     html_content = get_espn_bracket(True)
+#     bracket_json = extract_json_data(html_content)
+#     first_round = extract_first_round_from_json(bracket_json)
+# actual_bracket = convert_espn_to_bigdance(first_round, women=True)
+
 teams = {}
 for region in ["East","West","South","Midwest"]:
     teams[region] = [{"Team": team.name, "Seed": team.seed, "Rating": team.rating} \
