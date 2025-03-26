@@ -12,9 +12,8 @@
 import logging
 # from bigdance.wn_cbb_scraper import Standings
 # from bigdance.bigdance_integration import create_teams_from_standings
-from bigdance.espn_tc_scraper import extract_json_data, extract_first_round_from_json, convert_espn_to_bigdance, get_espn_bracket
-import os
-import json
+from bigdance.espn_tc_scraper import get_espn_bracket, extract_entry_bracket
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -23,26 +22,12 @@ logger = logging.getLogger(__name__)
 # actual_bracket = create_teams_from_standings(standings)
 
 # Pulling tournament team data from ESPN
-if os.path.exists("first_round_matchups_men.json"):
-    with open("first_round_matchups_men.json","r") as espn_data:
-        first_round = json.loads(espn_data.read())
-else:
-    html_content = get_espn_bracket()
-    bracket_json = extract_json_data(html_content)
-    first_round = extract_first_round_from_json(bracket_json)
-actual_bracket = convert_espn_to_bigdance(first_round)
-
-# if os.path.exists("first_round_matchups_women.json"):
-#     with open("first_round_matchups_women.json","r") as espn_data:
-#         first_round = json.loads(espn_data.read())
-# else:
-#     html_content = get_espn_bracket(True)
-#     bracket_json = extract_json_data(html_content)
-#     first_round = extract_first_round_from_json(bracket_json)
-# actual_bracket = convert_espn_to_bigdance(first_round, women=True)
+bracket_html = get_espn_bracket()
+actual_bracket = extract_entry_bracket(bracket_html)
+regions = np.unique([team.region for team in actual_bracket.teams])
 
 teams = {}
-for region in ["East","West","South","Midwest"]:
+for region in regions:
     teams[region] = [{"Team": team.name, "Seed": team.seed, "Rating": team.rating} \
                      for team in actual_bracket.teams if team.region == region]
 
