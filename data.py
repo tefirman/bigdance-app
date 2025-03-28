@@ -12,7 +12,8 @@
 import logging
 # from bigdance.wn_cbb_scraper import Standings
 # from bigdance.bigdance_integration import create_teams_from_standings
-from bigdance.espn_tc_scraper import get_espn_bracket, extract_entry_bracket
+# from bigdance.espn_tc_scraper import get_espn_bracket, extract_entry_bracket
+from bigdance.espn_tc_scraper import ESPNScraper, ESPNBracket
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -22,8 +23,14 @@ logger = logging.getLogger(__name__)
 # actual_bracket = create_teams_from_standings(standings)
 
 # Pulling tournament team data from ESPN
-bracket_html = get_espn_bracket()
-actual_bracket = extract_entry_bracket(bracket_html)
+# bracket_html = get_espn_bracket()
+# actual_bracket = extract_entry_bracket(bracket_html)
+# regions = np.unique([team.region for team in actual_bracket.teams])
+
+scraper = ESPNScraper()
+html_content = scraper.get_bracket()
+handler = ESPNBracket()
+actual_bracket = handler.extract_bracket(html_content)
 regions = np.unique([team.region for team in actual_bracket.teams])
 
 teams = {}
